@@ -4,3 +4,4 @@ dist/
 artifacts/
 .env
 .env.local
+typechain-types/
