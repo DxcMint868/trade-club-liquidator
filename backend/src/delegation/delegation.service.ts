@@ -176,25 +176,27 @@ export class DelegationService {
   }
 
   async isValidDelegation(delegationHash: string): Promise<boolean> {
-    // Check on-chain first
-    const isValidOnChain =
-      await this.contractService.isValidDelegation(delegationHash);
-
-    if (!isValidOnChain) {
-      // Update DB if not valid on-chain
-      await this.db.delegation.updateMany({
-        where: { delegationHash },
-        data: { isActive: false },
-      });
-      return false;
-    }
-
-    // Check in DB
+    // Get delegation from DB to find the delegator address
     const delegation = await this.db.delegation.findUnique({
       where: { delegationHash },
     });
 
     if (!delegation) return false;
+
+    // Check on-chain with the delegator (supporter) address
+    const isValidOnChain = await this.contractService.isDelegationValid(
+      delegationHash,
+      delegation.supporter, // The supporter is the delegator
+    );
+
+    if (!isValidOnChain) {
+      // Update DB if not valid on-chain
+      await this.db.delegation.update({
+        where: { delegationHash },
+        data: { isActive: false },
+      });
+      return false;
+    }
 
     const now = new Date();
     const isExpired = delegation.expiresAt < now;

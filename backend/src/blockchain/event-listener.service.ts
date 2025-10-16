@@ -1,5 +1,7 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { EventEmitter2 } from "@nestjs/event-emitter";
+import { ethers } from "ethers";
 import { ContractService } from "./contract.service";
 
 @Injectable()
@@ -7,6 +9,7 @@ export class EventListenerService implements OnModuleInit {
   constructor(
     private contractService: ContractService,
     private eventEmitter: EventEmitter2,
+    private configService: ConfigService,
   ) {}
 
   onModuleInit() {
@@ -95,70 +98,71 @@ export class EventListenerService implements OnModuleInit {
   }
 
   private listenToDelegationEvents() {
-    const { delegationRegistry } = this.contractService;
+    // Listen to DelegationManager for new DeleGator deployments
+    const delegationManagerAddress = this.configService.get<string>(
+      "DELEGATION_MANAGER_ADDRESS",
+      "0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3",
+    );
 
-    // Delegation created
-    delegationRegistry.on(
-      "DelegationCreated",
-      (
-        delegationHash,
-        supporter,
-        monachad,
-        matchId,
-        amount,
-        expiresAt,
-        event,
-      ) => {
+    const delegationManagerABI = [
+      "event NewDeleGator(address indexed delegator, address indexed delegatorAddress)",
+      "event DelegationCreated(address indexed delegator, bytes32 indexed delegationHash, address indexed delegate)",
+      "event DelegationDisabled(address indexed delegator, bytes32 indexed delegationHash)",
+    ];
+
+    const delegationManager = new ethers.Contract(
+      delegationManagerAddress,
+      delegationManagerABI,
+      this.contractService.provider,
+    );
+
+    // Listen for new DeleGator deployments
+    delegationManager.on(
+      "NewDeleGator",
+      (delegator, delegatorAddress, event) => {
         const payload = {
-          delegationHash,
-          supporter,
-          monachad,
-          matchId: matchId.toString(),
-          amount: amount.toString(),
-          expiresAt: expiresAt.toString(),
+          delegator,
+          delegatorAddress,
           blockNumber: event.log.blockNumber,
           transactionHash: event.log.transactionHash,
         };
-        console.log("DelegationCreated:", payload);
+        console.log("📢 NewDeleGator deployed:", payload);
+        this.eventEmitter.emit("delegation.delegator-created", payload);
+      },
+    );
+
+    // Listen for delegation creations
+    delegationManager.on(
+      "DelegationCreated",
+      (delegator, delegationHash, delegate, event) => {
+        const payload = {
+          delegator,
+          delegationHash,
+          delegate,
+          blockNumber: event.log.blockNumber,
+          transactionHash: event.log.transactionHash,
+        };
+        console.log("📢 DelegationCreated:", payload);
         this.eventEmitter.emit("delegation.created", payload);
       },
     );
 
-    // Delegation revoked
-    delegationRegistry.on(
-      "DelegationRevoked",
-      (delegationHash, supporter, timestamp, event) => {
+    // Listen for delegation disabling
+    delegationManager.on(
+      "DelegationDisabled",
+      (delegator, delegationHash, event) => {
         const payload = {
+          delegator,
           delegationHash,
-          supporter,
-          timestamp: timestamp.toString(),
           blockNumber: event.log.blockNumber,
           transactionHash: event.log.transactionHash,
         };
-        console.log("DelegationRevoked:", payload);
+        console.log("📢 DelegationDisabled:", payload);
         this.eventEmitter.emit("delegation.revoked", payload);
       },
     );
 
-    // Delegation executed
-    delegationRegistry.on(
-      "DelegationExecuted",
-      (delegationHash, executor, target, value, data, event) => {
-        const payload = {
-          delegationHash,
-          executor,
-          target,
-          value: value.toString(),
-          data,
-          blockNumber: event.log.blockNumber,
-          transactionHash: event.log.transactionHash,
-        };
-        console.log("DelegationExecuted:", payload);
-        this.eventEmitter.emit("delegation.executed", payload);
-      },
-    );
-
-    console.log("✅ Delegation event listeners active");
+    console.log("✅ MetaMask delegation event listeners active");
   }
 
   private listenToGovernanceEvents() {

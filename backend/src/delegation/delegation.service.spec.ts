@@ -20,7 +20,7 @@ describe("DelegationService", () => {
   };
 
   const mockContractService = {
-    isValidDelegation: jest.fn(),
+    isDelegationValid: jest.fn(),
   };
 
   const mockEventEmitter = {
@@ -153,16 +153,21 @@ describe("DelegationService", () => {
 
   describe("isValidDelegation", () => {
     it("should validate delegation on-chain", async () => {
-      mockContractService.isValidDelegation.mockResolvedValue(true);
       mockDatabaseService.delegation.findUnique.mockResolvedValue({
         id: "1",
+        supporter: "0xSupporter",
         isActive: true,
         expiresAt: new Date(Date.now() + 10000),
       });
+      mockContractService.isDelegationValid.mockResolvedValue(true);
 
       const result = await service.isValidDelegation("0x123");
 
       expect(result).toBe(true);
+      expect(mockContractService.isDelegationValid).toHaveBeenCalledWith(
+        "0x123",
+        "0xSupporter",
+      );
     });
   });
 

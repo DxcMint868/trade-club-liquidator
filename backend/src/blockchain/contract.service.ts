@@ -4,18 +4,30 @@ import { ethers } from "ethers";
 
 // Import contract ABIs
 import MatchManagerABI from "../../../contracts/artifacts/src/TradeClub_MatchManager.sol/TradeClub_MatchManager.json";
-import DelegationRegistryABI from "../../../contracts/artifacts/src/TradeClub_DelegationRegistry.sol/TradeClub_DelegationRegistry.json";
 import TradeClubTokenABI from "../../../contracts/artifacts/src/TradeClub_GovernanceToken.sol/TradeClub_GovernanceToken.json";
 import BribePoolABI from "../../../contracts/artifacts/src/TradeClub_BribePool.sol/TradeClub_BribePool.json";
 
+/**
+ * Service for interacting with blockchain contracts
+ * Supports MetaMask Delegation Framework for copy trading
+ */
 @Injectable()
 export class ContractService implements OnModuleInit {
   public provider: ethers.JsonRpcProvider;
   public wallet: ethers.Wallet;
   public matchManager: ethers.Contract;
-  public delegationRegistry: ethers.Contract;
   public govToken: ethers.Contract;
   public bribePool: ethers.Contract;
+
+  // MetaMask Delegation Framework support (will be initialized when needed)
+  private delegationManagerAddress: string;
+  private allowedEnforcers: {
+    allowedTargets: string;
+    allowedMethods: string;
+    timestamp: string;
+    valueLte: string;
+    limitedCalls: string;
+  };
 
   constructor(private configService: ConfigService) {}
 
@@ -35,24 +47,44 @@ export class ContractService implements OnModuleInit {
     const matchManagerAddress = this.configService.get<string>(
       "MATCH_MANAGER_ADDRESS",
     );
-    const delegationRegistryAddress = this.configService.get<string>(
-      "DELEGATION_REGISTRY_ADDRESS",
-    );
     const govTokenAddress = this.configService.get<string>(
       "GOVERNANCE_TOKEN_ADDRESS",
     );
     const bribePoolAddress =
       this.configService.get<string>("BRIBE_POOL_ADDRESS");
 
+    // MetaMask Delegation Framework addresses
+    this.delegationManagerAddress = this.configService.get<string>(
+      "DELEGATION_MANAGER_ADDRESS",
+      "0xc5d58A1569D82e7f6Be4C35c8dbBe0B6E87bE6ef", // Monad testnet default
+    );
+
+    this.allowedEnforcers = {
+      allowedTargets: this.configService.get<string>(
+        "ENFORCER_ALLOWED_TARGETS",
+        "0x7F2065A48E32047474A9dF53C2e116c1e2de1b60",
+      ),
+      allowedMethods: this.configService.get<string>(
+        "ENFORCER_ALLOWED_METHODS",
+        "0xc5d58A1569D82e7f6Be4C35c8dbBe0B6E87bE6ef",
+      ),
+      timestamp: this.configService.get<string>(
+        "ENFORCER_TIMESTAMP",
+        "0x1046aA7c37D64b1F6B8ef1c90D7989C1E66f8C5F",
+      ),
+      valueLte: this.configService.get<string>(
+        "ENFORCER_VALUE_LTE",
+        "0x61eCC94cE2883b0767507D2f6FAd77E07F27a21e",
+      ),
+      limitedCalls: this.configService.get<string>(
+        "ENFORCER_LIMITED_CALLS",
+        "0x44A6CbdECE346CF3dB30c53E9F062df5b7b09a11",
+      ),
+    };
+
     this.matchManager = new ethers.Contract(
       matchManagerAddress,
       MatchManagerABI.abi,
-      this.wallet,
-    );
-
-    this.delegationRegistry = new ethers.Contract(
-      delegationRegistryAddress,
-      DelegationRegistryABI.abi,
       this.wallet,
     );
 
@@ -70,7 +102,7 @@ export class ContractService implements OnModuleInit {
 
     console.log("Contracts initialized");
     console.log("MatchManager:", matchManagerAddress);
-    console.log("DelegationRegistry:", delegationRegistryAddress);
+    console.log("DelegationManager:", this.delegationManagerAddress);
     console.log("TradeClubToken:", govTokenAddress);
     console.log("BribePool:", bribePoolAddress);
 
@@ -98,31 +130,102 @@ export class ContractService implements OnModuleInit {
     return await this.matchManager.getMatchParticipants(matchId);
   }
 
-  async getDelegation(delegationHash: string) {
-    return await this.delegationRegistry.getDelegation(delegationHash);
+  /**
+   * Get the DeleGator (smart account) address for a user
+   * Uses CREATE2 deterministic deployment to predict the address
+   * @param userAddress - The EOA address of the user
+   * @returns The predicted DeleGator address
+   */
+  async getUserSmartAccount(userAddress: string): Promise<string> {
+    // MetaMask DelegationManager uses CREATE2 to deploy DeleGator contracts
+    // We need to call getDelegatorAddress(userAddress) on the DelegationManager
+    const delegationManagerABI = [
+      "function getDelegatorAddress(address user) view returns (address)",
+    ];
+
+    const delegationManager = new ethers.Contract(
+      this.delegationManagerAddress,
+      delegationManagerABI,
+      this.provider,
+    );
+
+    return await delegationManager.getDelegatorAddress(userAddress);
   }
 
-  async isValidDelegation(delegationHash: string): Promise<boolean> {
-    return await this.delegationRegistry.isValidDelegation(delegationHash);
+  /**
+   * Check if a delegation is valid by querying the user's DeleGator
+   * @param delegationHash - The keccak256 hash of the delegation
+   * @param userAddress - The EOA address that created the delegation
+   * @returns True if delegation exists and is enabled
+   */
+  async isDelegationValid(
+    delegationHash: string,
+    userAddress: string,
+  ): Promise<boolean> {
+    try {
+      const delegatorAddress = await this.getUserSmartAccount(userAddress);
+
+      // DeleGator ABI for checking delegation status
+      const delegatorABI = [
+        "function delegations(bytes32) view returns (address delegate, address delegator, bool enabled)",
+      ];
+
+      const delegator = new ethers.Contract(
+        delegatorAddress,
+        delegatorABI,
+        this.provider,
+      );
+
+      const delegation = await delegator.delegations(delegationHash);
+      return delegation.enabled;
+    } catch (error) {
+      console.error("Error checking delegation validity:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Get the current nonce for a user's smart account
+   * Used for building UserOperations
+   */
+  async getNonce(userAddress: string): Promise<bigint> {
+    const smartAccountAddress = await this.getUserSmartAccount(userAddress);
+
+    // EntryPoint nonce function (standard ERC-4337)
+    const entryPointABI = [
+      "function getNonce(address sender, uint192 key) view returns (uint256)",
+    ];
+
+    // Standard EntryPoint v0.6 address (same across all chains)
+    const entryPointAddress = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789";
+
+    const entryPoint = new ethers.Contract(
+      entryPointAddress,
+      entryPointABI,
+      this.provider,
+    );
+
+    return await entryPoint.getNonce(smartAccountAddress, 0);
+  }
+
+  /**
+   * Get current maxFeePerGas from network
+   */
+  async getMaxFeePerGas(): Promise<bigint> {
+    const feeData = await this.provider.getFeeData();
+    return feeData.maxFeePerGas || ethers.parseUnits("2", "gwei");
+  }
+
+  /**
+   * Get current maxPriorityFeePerGas from network
+   */
+  async getMaxPriorityFeePerGas(): Promise<bigint> {
+    const feeData = await this.provider.getFeeData();
+    return feeData.maxPriorityFeePerGas || ethers.parseUnits("1", "gwei");
   }
 
   async updatePnL(matchId: number | string, participant: string, pnl: bigint) {
     const tx = await this.matchManager.updatePnL(matchId, participant, pnl);
-    return await tx.wait();
-  }
-
-  async executeDelegatedTrade(
-    delegationHash: string,
-    target: string,
-    value: bigint,
-    data: string,
-  ) {
-    const tx = await this.delegationRegistry.executeDelegatedTrade(
-      delegationHash,
-      target,
-      value,
-      data,
-    );
     return await tx.wait();
   }
 
