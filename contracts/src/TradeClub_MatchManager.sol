@@ -4,13 +4,13 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
-import "./interfaces/IMatchManager.sol";
+import "./interfaces/TradeClub_IMatchManager.sol";
 
 /**
  * @notice Manages competitive trading matches for TradeClub platform
  * @dev Handles match creation, participation, settlement, and prize distribution
  */
-contract TradeClub_MatchManager is IMatchManager, ReentrancyGuard, Ownable, Pausable {
+contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Ownable, Pausable {
     // State variables
     uint256 public matchCounter;
     uint256 public platformFeePercent = 250; // 2.5% (basis points)

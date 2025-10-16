@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-interface IDelegationRegistry {
+interface TradeClub_IDelegationRegistry {
     struct Delegation {
         address supporter;
         address monachad;

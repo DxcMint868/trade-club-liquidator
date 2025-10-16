@@ -3,14 +3,14 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./interfaces/IDelegationRegistry.sol";
-import "./interfaces/IMatchManager.sol";
+import "./interfaces/TradeClub_IDelegationRegistry.sol";
+import "../interfaces/TradeClub_IMatchManager.sol";
 
 /**
  * @notice Manages trading delegations for TradeClub supporters to Monachads
  * @dev Implements non-custodial delegation with time-bound permissions and caveats
  */
-contract TradeClub_DelegationRegistry is IDelegationRegistry, ReentrancyGuard, Ownable {
+contract TradeClub_DelegationRegistry is TradeClub_IDelegationRegistry, ReentrancyGuard, Ownable {
     // State variables
     mapping(bytes32 => Delegation) public delegations;
     mapping(bytes32 => DelegationCaveat) public delegationCaveats;
@@ -18,10 +18,10 @@ contract TradeClub_DelegationRegistry is IDelegationRegistry, ReentrancyGuard, O
     mapping(address => mapping(uint256 => bytes32[])) public monachadDelegations; // monachad => matchId => delegationHashes
     mapping(bytes32 => uint256) public delegationSpent; // Track spending per delegation
 
-    IMatchManager public matchManager;
+    TradeClub_IMatchManager public matchManager;
 
     constructor(address _matchManager) Ownable(msg.sender) {
-        matchManager = IMatchManager(_matchManager);
+        matchManager = TradeClub_IMatchManager(_matchManager);
     }
 
     /**
@@ -49,7 +49,7 @@ contract TradeClub_DelegationRegistry is IDelegationRegistry, ReentrancyGuard, O
         require(_duration > 0, "Duration must be positive");
 
         // Verify match exists and Monachad is participant
-        IMatchManager.Match memory matchData = matchManager.getMatch(_matchId);
+        TradeClub_IMatchManager.Match memory matchData = matchManager.getMatch(_matchId);
         require(matchData.id == _matchId, "Match does not exist");
 
         bool isParticipant = false;
@@ -62,7 +62,7 @@ contract TradeClub_DelegationRegistry is IDelegationRegistry, ReentrancyGuard, O
         require(isParticipant, "Monachad not in match");
 
         // Verify match hasn't ended
-        if (matchData.status == IMatchManager.MatchStatus.ACTIVE) {
+        if (matchData.status == TradeClub_IMatchManager.MatchStatus.ACTIVE) {
             require(block.timestamp < matchData.endTime, "Match already ended");
         }
 
@@ -261,7 +261,7 @@ contract TradeClub_DelegationRegistry is IDelegationRegistry, ReentrancyGuard, O
      */
     function setMatchManager(address _newMatchManager) external onlyOwner {
         require(_newMatchManager != address(0), "Invalid address");
-        matchManager = IMatchManager(_newMatchManager);
+        matchManager = TradeClub_IMatchManager(_newMatchManager);
     }
 
     /**

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-interface IMatchManager {
+interface TradeClub_IMatchManager {
     enum MatchStatus {
         CREATED,
         ACTIVE,

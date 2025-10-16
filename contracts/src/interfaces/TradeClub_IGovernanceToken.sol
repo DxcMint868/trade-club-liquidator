@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-interface ITradeClubToken is IERC20 {
+interface TradeClub_IGovernanceToken is IERC20 {
     function mint(address to, uint256 amount) external;
 
     function burn(uint256 amount) external;
