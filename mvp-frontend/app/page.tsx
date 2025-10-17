@@ -25,23 +25,28 @@ export default function Home() {
             <p className="text-gray-400">Join matches and view active copy trading competitions</p>
           </Link>
 
+          <Link href="/trade" className="card hover:border-green-500 transition-colors">
+            <h2 className="text-2xl font-semibold mb-2">3. Trade on FUNDex 😄</h2>
+            <p className="text-gray-400">Open perpetual positions on our demo DEX</p>
+          </Link>
+
           <Link href="/delegation" className="card hover:border-blue-500 transition-colors">
-            <h2 className="text-2xl font-semibold mb-2">3. Create Delegation</h2>
+            <h2 className="text-2xl font-semibold mb-2">4. Create Delegation</h2>
             <p className="text-gray-400">Sign delegations with enforcers (spending limits, targets, etc.)</p>
           </Link>
 
           <Link href="/view-delegations" className="card hover:border-blue-500 transition-colors">
-            <h2 className="text-2xl font-semibold mb-2">4. View Delegations</h2>
+            <h2 className="text-2xl font-semibold mb-2">5. View Delegations</h2>
             <p className="text-gray-400">See all signed delegations and their status</p>
           </Link>
 
           <Link href="/execute-trade" className="card hover:border-blue-500 transition-colors">
-            <h2 className="text-2xl font-semibold mb-2">5. Execute Trade (Bob)</h2>
+            <h2 className="text-2xl font-semibold mb-2">6. Execute Trade (Bob)</h2>
             <p className="text-gray-400">Test single or batch copy trade execution via delegation</p>
           </Link>
 
           <Link href="/monitor" className="card hover:border-blue-500 transition-colors">
-            <h2 className="text-2xl font-semibold mb-2">6. Monitor</h2>
+            <h2 className="text-2xl font-semibold mb-2">7. Monitor</h2>
             <p className="text-gray-400">View trade results, UserOp status, and event logs</p>
           </Link>
         </div>

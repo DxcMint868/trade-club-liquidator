@@ -35,7 +35,15 @@ export default function MatchesPage() {
           <Link href="/" className="text-blue-500 hover:text-blue-400">
             ← Back
           </Link>
-          <ConnectButton />
+          <div className="flex gap-4 items-center">
+            <Link
+              href="/matches/create"
+              className="btn bg-green-600 hover:bg-green-700"
+            >
+              Create Match
+            </Link>
+            <ConnectButton />
+          </div>
         </div>
 
         <h1 className="text-4xl font-bold mb-8">Active Matches</h1>

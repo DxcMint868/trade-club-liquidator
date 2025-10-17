@@ -27,6 +27,11 @@ const MATCH_MANAGER_ABI = [
         name: "_maxSupportersPerMonachad",
         type: "uint256",
       },
+      {
+        internalType: "address[]",
+        name: "_allowedDexes",
+        type: "address[]",
+      },
     ],
     name: "createMatch",
     outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
@@ -72,6 +77,12 @@ const MATCH_MANAGER_ABI = [
         name: "maxSupportersPerMonachad",
         type: "uint256",
       },
+      {
+        indexed: false,
+        internalType: "address[]",
+        name: "allowedDexes",
+        type: "address[]",
+      },
     ],
     name: "MatchCreated",
     type: "event",
@@ -106,6 +117,11 @@ const MATCH_MANAGER_ABI = [
             type: "address[]",
           },
           { internalType: "address", name: "winner", type: "address" },
+          {
+            internalType: "address[]",
+            name: "allowedDexes",
+            type: "address[]",
+          },
         ],
         internalType: "struct TradeClub_IMatchManager.Match",
         name: "",
@@ -145,12 +161,15 @@ async function main() {
 
   // Define matches to create on-chain
   // Contract requires: duration between 1-24 hours, maxParticipants between 2-10
+  const fundexAddress = process.env.FUNDEX_ADDRESS! as `0x${string}`;
+  
   const matchesToCreate = [
     {
       entryMargin: parseEther("0.01"), // 0.01 ETH
       duration: 3600, // 1 hour (minimum allowed)
       maxMonachads: 5,
       maxSupportersPerMonachad: 20,
+      allowedDexes: [fundexAddress],
       value: parseEther("0.01"),
     },
     {
@@ -158,6 +177,7 @@ async function main() {
       duration: 43200, // 12 hours
       maxMonachads: 10,
       maxSupportersPerMonachad: 50,
+      allowedDexes: [fundexAddress],
       value: parseEther("0.005"),
     },
     {
@@ -165,6 +185,7 @@ async function main() {
       duration: 86400, // 24 hours (maximum allowed)
       maxMonachads: 2,
       maxSupportersPerMonachad: 100,
+      allowedDexes: [fundexAddress],
       value: parseEther("0.02"),
     },
   ];
@@ -193,6 +214,7 @@ async function main() {
           BigInt(matchConfig.duration),
           BigInt(matchConfig.maxMonachads),
           BigInt(matchConfig.maxSupportersPerMonachad),
+          matchConfig.allowedDexes,
         ],
         value: matchConfig.value,
         account,
@@ -256,10 +278,11 @@ async function main() {
         prizePool,
         status,
         monachads,
-        winner;
+        winner,
+        allowedDexes;
 
       if (Array.isArray(rawMatchData)) {
-        // Tuple/array format: [id, creator, entryMargin, duration, startTime, endTime, maxMonachads, maxSupportersPerMonachad, prizePool, status, monachads, winner]
+        // Tuple/array format: [id, creator, entryMargin, duration, startTime, endTime, maxMonachads, maxSupportersPerMonachad, prizePool, status, monachads, winner, allowedDexes]
         [
           id,
           creator,
@@ -273,6 +296,7 @@ async function main() {
           status,
           monachads,
           winner,
+          allowedDexes,
         ] = rawMatchData;
       } else {
         // Object format
@@ -289,6 +313,7 @@ async function main() {
           status,
           monachads,
           winner,
+          allowedDexes,
         } = rawMatchData);
       }
 
@@ -332,6 +357,7 @@ async function main() {
           startTime: parsedStartTime,
           endTime: parsedEndTime,
           winner: parsedWinner,
+          allowedDexes: allowedDexes.map((addr: string) => addr.toLowerCase()),
           blockNumber: Number(receipt.blockNumber),
           transactionHash: hash,
           createdTxHash: hash,
@@ -348,6 +374,7 @@ async function main() {
           startTime: parsedStartTime,
           endTime: parsedEndTime,
           winner: parsedWinner,
+          allowedDexes: allowedDexes.map((addr: string) => addr.toLowerCase()),
           blockNumber: Number(receipt.blockNumber),
           transactionHash: hash,
           createdTxHash: hash,

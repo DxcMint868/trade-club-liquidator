@@ -21,6 +21,7 @@ model Match {
   startTime       DateTime?
   endTime         DateTime?
   winner          String?    // Winning Monachad address
+  allowedDexes    String[]   // DEX addresses to monitor for this match
   blockNumber     Int
   transactionHash String
   createdTxHash   String?
