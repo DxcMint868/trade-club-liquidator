@@ -26,6 +26,7 @@ interface TradeClub_IMatchManager {
         uint256 prizePool;
         MatchStatus status;
         address[] monachads;       // List of competing traders
+        address[] allowedDexes;    // DEXs to monitor for this match
         address winner;
     }
 
@@ -46,7 +47,8 @@ interface TradeClub_IMatchManager {
         uint256 entryMargin,
         uint256 duration,
         uint256 maxMonachads,
-        uint256 maxSupportersPerMonachad
+        uint256 maxSupportersPerMonachad,
+        address[] allowedDexes
     );
 
     event MonachadJoined(
@@ -82,7 +84,8 @@ interface TradeClub_IMatchManager {
         uint256 _entryMargin,
         uint256 _duration,
         uint256 _maxMonachads,
-        uint256 _maxSupportersPerMonachad
+        uint256 _maxSupportersPerMonachad,
+        address[] memory _allowedDexes
     ) external payable returns (uint256);
 
     function joinAsMonachad(uint256 _matchId) external payable;

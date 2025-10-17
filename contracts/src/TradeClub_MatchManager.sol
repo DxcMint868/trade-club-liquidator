@@ -46,18 +46,21 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
      * @param _duration Match duration in seconds
      * @param _maxMonachads Maximum number of competing traders
      * @param _maxSupportersPerMonachad Maximum supporters each Monachad can have
+     * @param _allowedDexes Array of DEX addresses to monitor for this match
      * @return matchId The ID of the newly created match
      */
     function createMatch(
         uint256 _entryMargin,
         uint256 _duration,
         uint256 _maxMonachads,
-        uint256 _maxSupportersPerMonachad
+        uint256 _maxSupportersPerMonachad,
+        address[] memory _allowedDexes
     ) external payable nonReentrant whenNotPaused returns (uint256) {
         require(_entryMargin > 0, "Entry margin must be positive");
         require(_duration >= 1 hours && _duration <= 24 hours, "Invalid duration");
         require(_maxMonachads >= 2 && _maxMonachads <= 10, "Invalid max monachads");
         require(_maxSupportersPerMonachad > 0, "Must allow supporters");
+        require(_allowedDexes.length > 0, "Must specify at least one DEX");
         require(msg.value >= _entryMargin, "Insufficient entry margin");
 
         uint256 matchId = ++matchCounter;
@@ -71,6 +74,7 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
         newMatch.maxSupportersPerMonachad = _maxSupportersPerMonachad;
         newMatch.status = MatchStatus.CREATED;
         newMatch.prizePool = msg.value;
+        newMatch.allowedDexes = _allowedDexes;
 
         // Add creator as first Monachad
         Participant storage creator = participants[matchId][msg.sender];
@@ -83,7 +87,7 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
         newMatch.monachads.push(msg.sender);
         userMatches[msg.sender].push(matchId);
 
-        emit MatchCreated(matchId, msg.sender, _entryMargin, _duration, _maxMonachads, _maxSupportersPerMonachad);
+        emit MatchCreated(matchId, msg.sender, _entryMargin, _duration, _maxMonachads, _maxSupportersPerMonachad, _allowedDexes);
         emit MonachadJoined(matchId, msg.sender, msg.value);
 
         return matchId;

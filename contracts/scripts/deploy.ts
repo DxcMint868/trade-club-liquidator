@@ -1,4 +1,5 @@
 import { ethers } from "hardhat";
+import { tryVerifyContractOnExplorer } from "./verify";
 
 async function main() {
   console.log("Starting TradeClub deployment...");
@@ -8,50 +9,51 @@ async function main() {
   console.log("Account balance:", (await ethers.provider.getBalance(deployer.address)).toString());
 
   // 1. Deploy TradeClubToken
-  console.log("\n1. Deploying TradeClubToken...");
-  const TradeClubToken = await ethers.getContractFactory("TradeClubToken");
-  const tclubToken = await TradeClubToken.deploy();
-  await tclubToken.waitForDeployment();
-  const tclubTokenAddress = await tclubToken.getAddress();
-  console.log("TradeClubToken deployed to:", tclubTokenAddress);
+  // console.log("\n1. Deploying GovernanceToken...");
+  // const GovernanceToken = await ethers.getContractFactory("TradeClub_GovernanceToken");
+  // const govToken = await GovernanceToken.deploy();
+  // await govToken.waitForDeployment();
+  // const govTokenAddress = await govToken.getAddress();
+  // console.log("GovernanceToken deployed to:", govTokenAddress);
 
   // 2. Deploy MatchManager
   console.log("\n2. Deploying MatchManager...");
-  const MatchManager = await ethers.getContractFactory("MatchManager");
+  const MatchManager = await ethers.getContractFactory("TradeClub_MatchManager");
   const matchManager = await MatchManager.deploy();
   await matchManager.waitForDeployment();
   const matchManagerAddress = await matchManager.getAddress();
   console.log("MatchManager deployed to:", matchManagerAddress);
+  await tryVerifyContractOnExplorer(matchManagerAddress, [], 1);
 
-  // 3. Deploy DelegationRegistry
-  console.log("\n3. Deploying DelegationRegistry...");
-  const DelegationRegistry = await ethers.getContractFactory("DelegationRegistry");
-  const delegationRegistry = await DelegationRegistry.deploy(matchManagerAddress);
-  await delegationRegistry.waitForDeployment();
-  const delegationRegistryAddress = await delegationRegistry.getAddress();
-  console.log("DelegationRegistry deployed to:", delegationRegistryAddress);
+  // // 3. Deploy FUNDex
+  // console.log("\n3. Deploying FUNDex...");
+  // const FUNDex = await ethers.getContractFactory("FUNDex");
+  // const fundex = await FUNDex.deploy();
+  // await fundex.waitForDeployment();
+  // const fundexAddress = await fundex.getAddress();
+  // console.log("FUNDex deployed to:", fundexAddress);
+  // await tryVerifyContractOnExplorer(fundexAddress, [], 1);
 
   // 4. Deploy BribePool
-  console.log("\n4. Deploying BribePool...");
-  const BribePool = await ethers.getContractFactory("BribePool");
-  const bribePool = await BribePool.deploy(tclubTokenAddress);
-  await bribePool.waitForDeployment();
-  const bribePoolAddress = await bribePool.getAddress();
-  console.log("BribePool deployed to:", bribePoolAddress);
+  // console.log("\n4. Deploying BribePool...");
+  // const BribePool = await ethers.getContractFactory("TradeClub_BribePool");
+  // const bribePool = await BribePool.deploy(govTokenAddress);
+  // await bribePool.waitForDeployment();
+  // const bribePoolAddress = await bribePool.getAddress();
+  // console.log("BribePool deployed to:", bribePoolAddress);
 
-  // Setup: Add BribePool as minter for rewards
-  console.log("\n5. Setting up token minters...");
-  const addMinterTx = await tclubToken.addMinter(bribePoolAddress);
-  await addMinterTx.wait();
-  console.log("BribePool added as TCLUB token minter");
+  // // Setup: Add BribePool as minter for rewards
+  // console.log("\n5. Setting up token minters...");
+  // const addMinterTx = await govToken.addMinter(bribePoolAddress);
+  // await addMinterTx.wait();
+  // console.log("BribePool added as TCLUB token minter");
 
   // Print deployment summary
-  console.log("\n=== Deployment Summary ===");
-  console.log("TradeClubToken:", tclubTokenAddress);
-  console.log("MatchManager:", matchManagerAddress);
-  console.log("DelegationRegistry:", delegationRegistryAddress);
-  console.log("BribePool:", bribePoolAddress);
-  console.log("Deployer:", deployer.address);
+  // console.log("\n=== Deployment Summary ===");
+  // console.log("TradeClubToken:", govTokenAddress);
+  // console.log("MatchManager:", matchManagerAddress);
+  // console.log("BribePool:", bribePoolAddress);
+  // console.log("Deployer:", deployer.address);
 
   // Save deployment addresses to file
   const fs = require("fs");
@@ -61,10 +63,10 @@ async function main() {
     deployer: deployer.address,
     timestamp: new Date().toISOString(),
     contracts: {
-      TradeClubToken: tclubTokenAddress,
+      // TradeClubToken: govTokenAddress,
       MatchManager: matchManagerAddress,
-      DelegationRegistry: delegationRegistryAddress,
-      BribePool: bribePoolAddress,
+      FUNDex: fundexAddress,
+      // BribePool: bribePoolAddress,
     },
   };
 
@@ -74,7 +76,7 @@ async function main() {
   );
 
   console.log("\nDeployment info saved to ./deployments/");
-  console.log("\n✅ Deployment completed successfully!");
+  console.log("\nDeployment completed successfully!");
 }
 
 main()
