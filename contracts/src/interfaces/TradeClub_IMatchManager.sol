@@ -9,6 +9,11 @@ interface TradeClub_IMatchManager {
         SETTLED
     }
 
+    enum ParticipantRole {
+        MONACHAD,   // Competing trader
+        SUPPORTER   // Copy trader following a Monachad
+    }
+
     struct Match {
         uint256 id;
         address creator;
@@ -16,16 +21,21 @@ interface TradeClub_IMatchManager {
         uint256 duration;
         uint256 startTime;
         uint256 endTime;
-        uint256 maxParticipants;
+        uint256 maxMonachads;      // Max competing traders
+        uint256 maxSupportersPerMonachad; // Max supporters per trader
         uint256 prizePool;
         MatchStatus status;
-        address[] participants;
+        address[] monachads;       // List of competing traders
         address winner;
     }
 
     struct Participant {
         address trader;
-        uint256 stakedAmount;
+        address smartAccount;      // Smart account for trading (supporters only)
+        ParticipantRole role;
+        address followingMonachad; // Only set if role == SUPPORTER
+        uint256 stakedAmount;      // Entry fee for supporters, full stake for Monachads
+        uint256 fundedAmount;      // Amount funded to smart account (supporters only)
         int256 pnl;
         uint256 joinedAt;
     }
@@ -35,13 +45,23 @@ interface TradeClub_IMatchManager {
         address indexed creator,
         uint256 entryMargin,
         uint256 duration,
-        uint256 maxParticipants
+        uint256 maxMonachads,
+        uint256 maxSupportersPerMonachad
     );
 
-    event ParticipantJoined(
+    event MonachadJoined(
         uint256 indexed matchId,
-        address indexed participant,
+        address indexed monachad,
         uint256 stakedAmount
+    );
+
+    event SupporterJoined(
+        uint256 indexed matchId,
+        address indexed supporter,
+        address indexed followingMonachad,
+        address smartAccount,
+        uint256 entryFee,
+        uint256 fundedAmount
     );
 
     event MatchStarted(uint256 indexed matchId, uint256 startTime);
@@ -61,10 +81,19 @@ interface TradeClub_IMatchManager {
     function createMatch(
         uint256 _entryMargin,
         uint256 _duration,
-        uint256 _maxParticipants
+        uint256 _maxMonachads,
+        uint256 _maxSupportersPerMonachad
     ) external payable returns (uint256);
 
-    function joinMatch(uint256 _matchId) external payable;
+    function joinAsMonachad(uint256 _matchId) external payable;
+
+    function followMonachadAndFundAccount(
+        uint256 _matchId,
+        address _monachad,
+        address payable _smartAccountAddress
+    ) external payable;
+
+    function getEntryFee(uint256 _matchId) external view returns (uint256);
 
     function startMatch(uint256 _matchId) external;
 
