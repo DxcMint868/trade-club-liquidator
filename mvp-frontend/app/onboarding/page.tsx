@@ -69,65 +69,63 @@ export default function OnboardingPage() {
     setError("");
 
     try {
-      setDeploymentStatus("Creating MetaMask smart account (DeleGator)...");
+      setDeploymentStatus(
+        "Requesting smart account deployment from backend..."
+      );
 
-      // Create a Hybrid smart account with the connected EOA as owner
-      // deployParams: [owner, p256Signers[], delegateSigners[], authPolicies[]]
-      // Use walletClient for signing (browser wallet like MetaMask)
-      const smartAccount = await toMetaMaskSmartAccount({
-        client: publicClient,
-        implementation: Implementation.Hybrid,
-        deployParams: [
-          address, // EOA owner
-          [], // No P256 signers
-          [], // No delegate signers
-          [], // No auth policies
-        ],
-        deploySalt:
-          "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex,
-        signer: { walletClient }, // Use walletClient for browser wallet signing
-      });
+      // Call backend API to deploy the smart account
+      // Backend will use its relayer to sponsor the deployment transaction
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/smart-account/deploy`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userAddress: address,
+            implementation: "Hybrid",
+            deployParams: [
+              address, // EOA owner
+              [], // No P256 signers
+              [], // No delegate signers
+              [], // No auth policies
+            ],
+            deploySalt:
+              "0x0000000000000000000000000000000000000000000000000000000000000000",
+          }),
+        }
+      );
 
-      const deployedAddress = smartAccount.address;
-      setSmartAccountAddress(deployedAddress);
-
-      setDeploymentStatus("Checking if smart account needs deployment...");
-
-      // Check if already deployed
-      const code = await publicClient.getBytecode({
-        address: deployedAddress as Hex,
-      });
-
-      if (code && code !== "0x") {
-        setIsDeployed(true);
-        localStorage.setItem(`smartAccount_${address}`, deployedAddress);
-        setDeploymentStatus(
-          `Smart account already deployed at: ${deployedAddress}`
-        );
-      } else {
-        setDeploymentStatus(
-          `Smart account computed (not yet deployed): ${deployedAddress}. It will be deployed when you create your first delegation (UserOp).`
-        );
-        localStorage.setItem(`smartAccount_${address}`, deployedAddress);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Deployment failed");
       }
 
-      // // Notify backend
-      // try {
-      //   await fetch(
-      //     `${process.env.NEXT_PUBLIC_API_URL}/api/smart-account/register`,
-      //     {
-      //       method: "POST",
-      //       headers: { "Content-Type": "application/json" },
-      //       body: JSON.stringify({
-      //         owner: address,
-      //         smartAccount: deployedAddress,
-      //         chain: chain.id,
-      //       }),
-      //     }
-      //   );
-      // } catch (err) {
-      //   console.error("Failed to register with backend:", err);
-      // }
+      const result = await response.json();
+
+      setSmartAccountAddress(result.smartAccountAddress);
+
+      if (result.status === "already-deployed") {
+        setIsDeployed(true);
+        setDeploymentStatus(
+          `Smart account already deployed at: ${result.smartAccountAddress}`
+        );
+      } else if (result.status === "deployed") {
+        setIsDeployed(true);
+        setDeploymentStatus(
+          `Smart account deployed successfully!\n` +
+            `Address: ${result.smartAccountAddress}\n` +
+            `Tx: ${result.txHash}\n` +
+            `Block: ${result.blockNumber}`
+        );
+      }
+
+      // Cache in localStorage
+      localStorage.setItem(
+        `smartAccount_${address}`,
+        result.smartAccountAddress
+      );
+
+      console.log("Deployment result:", result);
     } catch (err: any) {
       console.error("Smart account creation error:", err);
       setError(
