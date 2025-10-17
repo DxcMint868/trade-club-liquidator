@@ -30,7 +30,7 @@ export class MatchesService {
     private contractService: ContractService
   ) {}
 
-  // Event handlers for blockchain events
+  // Event handlers for blockchin events
   @OnEvent("match.created")
   async handleMatchCreated(payload: any) {
     const {
@@ -39,6 +39,8 @@ export class MatchesService {
       entryMargin,
       duration,
       maxParticipants,
+      maxSupportersPerMonachad,
+      allowedDexes,
       blockNumber,
       transactionHash,
     } = payload;
@@ -50,8 +52,10 @@ export class MatchesService {
         entryMargin,
         duration: parseInt(duration),
         maxParticipants: parseInt(maxParticipants),
+        maxSupporters: parseInt(maxSupportersPerMonachad),
         prizePool: "0",
         status: MatchStatus.CREATED,
+        allowedDexes: allowedDexes || [],
         createdTxHash: transactionHash,
         blockNumber,
         transactionHash,
