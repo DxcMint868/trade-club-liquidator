@@ -27,7 +27,7 @@ export interface UpdatePnLDto {
 export class MatchesService {
   constructor(
     private db: DatabaseService,
-    private contractService: ContractService,
+    private contractService: ContractService
   ) {}
 
   // Event handlers for blockchain events
@@ -128,9 +128,7 @@ export class MatchesService {
       },
     });
 
-    console.log(
-      `✅ PnL updated for ${participant} in match ${matchId}: ${pnl}`,
-    );
+    console.log(`PnL updated for ${participant} in match ${matchId}: ${pnl}`);
   }
 
   // API methods
@@ -221,7 +219,7 @@ export class MatchesService {
     // Combine and deduplicate
     const allMatches = [...createdMatches, ...participatedMatches];
     const uniqueMatches = Array.from(
-      new Map(allMatches.map((m) => [m.matchId, m])).values(),
+      new Map(allMatches.map((m) => [m.matchId, m])).values()
     );
 
     return uniqueMatches;
@@ -245,7 +243,7 @@ export class MatchesService {
     matchId: string,
     userAddress: string,
     smartAccountAddress: string,
-    signedDelegation: any,
+    signedDelegation: any
   ) {
     // Validate match exists and is joinable
     const match = await this.db.match.findUnique({
@@ -257,8 +255,13 @@ export class MatchesService {
       throw new Error(`Match ${matchId} not found`);
     }
 
-    if (match.status !== MatchStatus.CREATED && match.status !== MatchStatus.ACTIVE) {
-      throw new Error(`Match ${matchId} is not accepting participants (status: ${match.status})`);
+    if (
+      match.status !== MatchStatus.CREATED &&
+      match.status !== MatchStatus.ACTIVE
+    ) {
+      throw new Error(
+        `Match ${matchId} is not accepting participants (status: ${match.status})`
+      );
     }
 
     if (match.participants.length >= match.maxParticipants) {
@@ -267,7 +270,7 @@ export class MatchesService {
 
     // Check if user already joined
     const existingParticipant = match.participants.find(
-      (p) => p.address.toLowerCase() === userAddress.toLowerCase(),
+      (p) => p.address.toLowerCase() === userAddress.toLowerCase()
     );
 
     if (existingParticipant) {
@@ -302,6 +305,8 @@ export class MatchesService {
         },
       });
 
+      
+      console.log("Delegation Data:", delegationData);
       const delegation = await tx.delegation.create({
         data: delegationData,
       });
@@ -309,7 +314,9 @@ export class MatchesService {
       return { participant, delegation };
     });
 
-    console.log(`✅ User ${userAddress} joined match ${matchId} with delegation`);
+    console.log(
+      `✅ User ${userAddress} joined match ${matchId} with delegation`
+    );
 
     return {
       success: true,
@@ -324,7 +331,7 @@ export class MatchesService {
   async updatePnLFromTrade(
     matchId: string,
     participant: string,
-    tradePnL: string,
+    tradePnL: string
   ) {
     // Get current participant data
     const participantData = await this.db.participant.findFirst({
@@ -336,7 +343,7 @@ export class MatchesService {
 
     if (!participantData) {
       throw new Error(
-        `Participant ${participant} not found in match ${matchId}`,
+        `Participant ${participant} not found in match ${matchId}`
       );
     }
 
@@ -367,4 +374,285 @@ export class MatchesService {
     const roi = (pnlBigInt * 10000n) / stakedBigInt; // 100% = 10000
     return (Number(roi) / 100).toFixed(2);
   }
+
+  // New methods for Monachad/Supporter flow
+
+  /**
+   * Get all Monachads (competing traders) in a match
+   */
+  async getMatchMonachads(matchId: string) {
+    const monachads = await this.db.participant.findMany({
+      where: {
+        matchId,
+        role: "MONACHAD",
+      },
+      select: {
+        address: true,
+        stakedAmount: true,
+        pnl: true,
+        joinedAt: true,
+      },
+      orderBy: {
+        joinedAt: "asc",
+      },
+    });
+
+    return {
+      matchId,
+      monachads: monachads.map((m) => ({
+        ...m,
+        roi: this.calculateROI(m.pnl, m.stakedAmount),
+      })),
+    };
+  }
+
+  /**
+   * Get all supporters in a match
+   */
+  async getMatchSupporters(matchId: string) {
+    const supporters = await this.db.participant.findMany({
+      where: {
+        matchId,
+        role: "SUPPORTER",
+      },
+      select: {
+        address: true,
+        followingAddress: true,
+        stakedAmount: true,
+        pnl: true,
+        joinedAt: true,
+      },
+      orderBy: {
+        joinedAt: "asc",
+      },
+    });
+
+    return {
+      matchId,
+      supporters,
+    };
+  }
+
+  /**
+   * Get all supporters following a specific Monachad
+   */
+  async getMonachadSupporters(matchId: string, monachadAddress: string) {
+    const supporters = await this.db.participant.findMany({
+      where: {
+        matchId,
+        role: "SUPPORTER",
+        followingAddress: monachadAddress.toLowerCase(),
+      },
+      select: {
+        address: true,
+        stakedAmount: true,
+        pnl: true,
+        joinedAt: true,
+      },
+      orderBy: {
+        joinedAt: "asc",
+      },
+    });
+
+    return {
+      matchId,
+      monachadAddress,
+      supporters,
+      totalSupporters: supporters.length,
+    };
+  }
+
+  /**
+   * Join a match as a competing Monachad (trader)
+   */
+  async joinAsMonachad(
+    matchId: string,
+    monachadAddress: string,
+    smartAccountAddress: string
+  ) {
+    const match = await this.db.match.findUnique({
+      where: { matchId },
+      include: { participants: true },
+    });
+
+    if (!match) {
+      throw new Error(`Match ${matchId} not found`);
+    }
+
+    if (
+      match.status !== MatchStatus.CREATED &&
+      match.status !== MatchStatus.ACTIVE
+    ) {
+      throw new Error(
+        `Match ${matchId} is not accepting Monachads (status: ${match.status})`
+      );
+    }
+
+    // Count current Monachads
+    const currentMonachads = match.participants.filter(
+      (p) => p.role === "MONACHAD"
+    ).length;
+
+    if (currentMonachads >= match.maxParticipants) {
+      throw new Error(`Match ${matchId} already has max Monachads`);
+    }
+
+    // Check if user already joined
+    const existingParticipant = match.participants.find(
+      (p) => p.address.toLowerCase() === monachadAddress.toLowerCase()
+    );
+
+    if (existingParticipant) {
+      throw new Error(
+        `User ${monachadAddress} already joined match ${matchId}`
+      );
+    }
+
+    // Create participant as Monachad
+    const participant = await this.db.participant.create({
+      data: {
+        matchId,
+        address: monachadAddress.toLowerCase(),
+        role: "MONACHAD",
+        followingAddress: null,
+        stakedAmount: match.entryMargin,
+        pnl: "0",
+        joinedTxHash: "0x0", // Will be updated when on-chain tx happens
+      },
+    });
+
+    console.log(
+      `✅ User ${monachadAddress} joined match ${matchId} as Monachad`
+    );
+
+    return {
+      success: true,
+      participant,
+      role: "MONACHAD",
+    };
+  }
+
+  /**
+   * Follow a Monachad in a match (join as supporter/copy trader)
+   */
+  async followMonachad(
+    matchId: string,
+    supporterAddress: string,
+    monachadAddress: string,
+    smartAccountAddress: string,
+    signedDelegation: any,
+    stakedAmount?: string
+  ) {
+    const match = await this.db.match.findUnique({
+      where: { matchId },
+      include: { participants: true },
+    });
+
+    if (!match) {
+      throw new Error(`Match ${matchId} not found`);
+    }
+
+    if (
+      match.status !== MatchStatus.CREATED &&
+      match.status !== MatchStatus.ACTIVE
+    ) {
+      throw new Error(
+        `Match ${matchId} is not accepting supporters (status: ${match.status})`
+      );
+    }
+
+    // Check if Monachad exists in this match
+    const monachad = match.participants.find(
+      (p) =>
+        p.address.toLowerCase() === monachadAddress.toLowerCase() &&
+        p.role === "MONACHAD"
+    );
+
+    if (!monachad) {
+      throw new Error(
+        `Monachad ${monachadAddress} not found in match ${matchId}`
+      );
+    }
+
+    // Check if supporter already joined
+    const existingParticipant = match.participants.find(
+      (p) => p.address.toLowerCase() === supporterAddress.toLowerCase()
+    );
+
+    if (existingParticipant) {
+      throw new Error(
+        `User ${supporterAddress} already joined match ${matchId}`
+      );
+    }
+
+    // Count current supporters for this Monachad
+    const currentSupporters = match.participants.filter(
+      (p) =>
+        p.role === "SUPPORTER" &&
+        p.followingAddress?.toLowerCase() === monachadAddress.toLowerCase()
+    ).length;
+
+    if (match.maxSupporters && currentSupporters >= match.maxSupporters) {
+      throw new Error(
+        `Monachad ${monachadAddress} already has max supporters`
+      );
+    }
+
+    // Use provided staked amount or default to 0
+    const amountToStake = stakedAmount || "0";
+
+    // Store delegation
+    const delegationData = {
+      supporter: supporterAddress.toLowerCase(),
+      monachad: monachadAddress.toLowerCase(),
+      matchId,
+      amount: amountToStake,
+      spendingLimit: amountToStake,
+      spent: "0",
+      expiresAt: new Date(Date.now() + match.duration * 1000),
+      delegationHash: signedDelegation.signature,
+      signedDelegation: JSON.stringify(signedDelegation),
+      isActive: true,
+      blockNumber: 0,
+      transactionHash: "0x0",
+    };
+
+    // Create participant and delegation in a transaction
+    const result = await this.db.$transaction(async (tx) => {
+      const participant = await tx.participant.create({
+        data: {
+          matchId,
+          address: supporterAddress.toLowerCase(),
+          role: "SUPPORTER",
+          followingAddress: monachadAddress.toLowerCase(),
+          stakedAmount: amountToStake,
+          pnl: "0",
+          joinedTxHash: "0x0",
+        },
+      });
+
+      console.log("Delegation Data:", delegationData);
+      const delegation = await tx.delegation.create({
+        data: delegationData,
+      });
+
+      return { participant, delegation };
+    });
+
+    console.log(
+      `✅ User ${supporterAddress} joined match ${matchId} as Supporter, following ${monachadAddress}`
+    );
+
+    return {
+      success: true,
+      participant: result.participant,
+      delegation: {
+        delegationHash: result.delegation.delegationHash,
+        expiresAt: result.delegation.expiresAt,
+      },
+      role: "SUPPORTER",
+      followingMonachad: monachadAddress,
+    };
+  }
 }
+

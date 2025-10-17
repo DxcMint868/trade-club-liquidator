@@ -61,6 +61,7 @@ export class EventListenerService implements OnModuleInit, OnModuleDestroy {
    */
   @Interval(5000)
   async pollEvents() {
+    return; // quick switch
     if (!this.isPolling || !this.contractService.matchManager) {
       return;
     }

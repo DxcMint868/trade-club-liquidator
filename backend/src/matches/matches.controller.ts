@@ -31,11 +31,73 @@ export class MatchesController {
     return await this.matchesService.getMatchParticipants(matchId);
   }
 
+  @Get(":matchId/monachads")
+  async getMatchMonachads(@Param("matchId") matchId: string) {
+    return await this.matchesService.getMatchMonachads(matchId);
+  }
+
+  @Get(":matchId/supporters")
+  async getMatchSupporters(@Param("matchId") matchId: string) {
+    return await this.matchesService.getMatchSupporters(matchId);
+  }
+
+  @Get(":matchId/monachads/:monachadAddress/supporters")
+  async getMonachadSupporters(
+    @Param("matchId") matchId: string,
+    @Param("monachadAddress") monachadAddress: string
+  ) {
+    return await this.matchesService.getMonachadSupporters(
+      matchId,
+      monachadAddress
+    );
+  }
+
   @Get(":matchId/leaderboard")
   async getMatchLeaderboard(@Param("matchId") matchId: string) {
     return await this.matchesService.getMatchLeaderboard(matchId);
   }
 
+  @Post(":matchId/join-as-monachad")
+  async joinAsMonachad(
+    @Param("matchId") matchId: string,
+    @Body()
+    body: {
+      address: string;
+      smartAccountAddress: string;
+    }
+  ) {
+    return await this.matchesService.joinAsMonachad(
+      matchId,
+      body.address,
+      body.smartAccountAddress
+    );
+  }
+
+  @Post(":matchId/follow-monachad")
+  async followMonachad(
+    @Param("matchId") matchId: string,
+    @Body()
+    body: {
+      supporterAddress: string;
+      monachadAddress: string;
+      smartAccountAddress: string;
+      signedDelegation: any;
+      stakedAmount?: string;
+    }
+  ) {
+    return await this.matchesService.followMonachad(
+      matchId,
+      body.supporterAddress,
+      body.monachadAddress,
+      body.smartAccountAddress,
+      body.signedDelegation,
+      body.stakedAmount
+    );
+  }
+
+  /**
+   * @deprecated Use join-as-monachad or follow-monachad instead
+   */
   @Post("join")
   async joinMatch(
     @Body()
@@ -44,25 +106,25 @@ export class MatchesController {
       address: string;
       smartAccountAddress: string;
       signedDelegation: any;
-    },
+    }
   ) {
     return await this.matchesService.joinMatch(
       body.matchId,
       body.address,
       body.smartAccountAddress,
-      body.signedDelegation,
+      body.signedDelegation
     );
   }
 
   @Post(":matchId/update-pnl")
   async updatePnL(
     @Param("matchId") matchId: string,
-    @Body() body: { participant: string; tradePnL: string },
+    @Body() body: { participant: string; tradePnL: string }
   ) {
     return await this.matchesService.updatePnLFromTrade(
       matchId,
       body.participant,
-      body.tradePnL,
+      body.tradePnL
     );
   }
 }
