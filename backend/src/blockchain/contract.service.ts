@@ -32,7 +32,7 @@ export class ContractService implements OnModuleInit {
   constructor(private configService: ConfigService) {}
 
   async onModuleInit() {
-    const rpcUrl = this.configService.get<string>("MONAD_RPC_URL");
+    const rpcUrl = this.configService.get<string>("RPC_URL");
     const privateKey = this.configService.get<string>("PRIVATE_KEY");
 
     // Initialize provider

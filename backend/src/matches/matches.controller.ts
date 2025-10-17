@@ -36,6 +36,24 @@ export class MatchesController {
     return await this.matchesService.getMatchLeaderboard(matchId);
   }
 
+  @Post("join")
+  async joinMatch(
+    @Body()
+    body: {
+      matchId: string;
+      address: string;
+      smartAccountAddress: string;
+      signedDelegation: any;
+    },
+  ) {
+    return await this.matchesService.joinMatch(
+      body.matchId,
+      body.address,
+      body.smartAccountAddress,
+      body.signedDelegation,
+    );
+  }
+
   @Post(":matchId/update-pnl")
   async updatePnL(
     @Param("matchId") matchId: string,

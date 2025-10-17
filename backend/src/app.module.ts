@@ -9,6 +9,7 @@ import { MatchesModule } from "./matches/matches.module";
 import { DelegationModule } from "./delegation/delegation.module";
 import { TradingModule } from "./trading/trading.module";
 import { GovernanceModule } from "./governance/governance.module";
+import { SmartAccountModule } from "./smart-account/smart-account.module";
 import { HealthController } from "./health.controller";
 
 @Module({
@@ -32,6 +33,7 @@ import { HealthController } from "./health.controller";
     DelegationModule,
     TradingModule,
     GovernanceModule,
+    SmartAccountModule,
   ],
   controllers: [HealthController],
 })

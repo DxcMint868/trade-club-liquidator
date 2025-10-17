@@ -241,6 +241,86 @@ export class MatchesService {
     });
   }
 
+  async joinMatch(
+    matchId: string,
+    userAddress: string,
+    smartAccountAddress: string,
+    signedDelegation: any,
+  ) {
+    // Validate match exists and is joinable
+    const match = await this.db.match.findUnique({
+      where: { matchId },
+      include: { participants: true },
+    });
+
+    if (!match) {
+      throw new Error(`Match ${matchId} not found`);
+    }
+
+    if (match.status !== MatchStatus.CREATED && match.status !== MatchStatus.ACTIVE) {
+      throw new Error(`Match ${matchId} is not accepting participants (status: ${match.status})`);
+    }
+
+    if (match.participants.length >= match.maxParticipants) {
+      throw new Error(`Match ${matchId} is full`);
+    }
+
+    // Check if user already joined
+    const existingParticipant = match.participants.find(
+      (p) => p.address.toLowerCase() === userAddress.toLowerCase(),
+    );
+
+    if (existingParticipant) {
+      throw new Error(`User ${userAddress} already joined match ${matchId}`);
+    }
+
+    // Store signed delegation for future use
+    const delegationData = {
+      supporter: userAddress.toLowerCase(),
+      monachad: signedDelegation.delegate.toLowerCase(),
+      matchId,
+      amount: match.entryMargin,
+      spendingLimit: match.entryMargin, // For now, spending limit = entry margin
+      spent: "0",
+      expiresAt: new Date(Date.now() + match.duration * 1000),
+      delegationHash: signedDelegation.signature, // Use signature as hash for now
+      signedDelegation: JSON.stringify(signedDelegation),
+      isActive: true,
+      blockNumber: 0, // Will be updated when actually executed on-chain
+      transactionHash: "0x0", // Placeholder
+    };
+
+    // Create participant and delegation in a transaction
+    const result = await this.db.$transaction(async (tx) => {
+      const participant = await tx.participant.create({
+        data: {
+          matchId,
+          address: userAddress.toLowerCase(),
+          stakedAmount: match.entryMargin,
+          pnl: "0",
+          joinedTxHash: "0x0", // Will be updated when on-chain tx happens
+        },
+      });
+
+      const delegation = await tx.delegation.create({
+        data: delegationData,
+      });
+
+      return { participant, delegation };
+    });
+
+    console.log(`✅ User ${userAddress} joined match ${matchId} with delegation`);
+
+    return {
+      success: true,
+      participant: result.participant,
+      delegation: {
+        delegationHash: result.delegation.delegationHash,
+        expiresAt: result.delegation.expiresAt,
+      },
+    };
+  }
+
   async updatePnLFromTrade(
     matchId: string,
     participant: string,
