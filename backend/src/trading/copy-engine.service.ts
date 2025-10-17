@@ -12,7 +12,9 @@ import {
   ExecutionMode,
   type Delegation,
 } from "@metamask/delegation-toolkit";
-import { DelegationManager } from "@metamask/delegation-toolkit/dist/contracts";
+
+// DelegationManager contract - loaded dynamically at runtime
+let DelegationManagerContract: any;
 
 interface CopyTradeParams {
   monachadAddress: string;
@@ -224,8 +226,19 @@ export class CopyEngineService {
       }
 
       // Build the redeemDelegations calldata using MetaMask toolkit
+      // Lazy load DelegationManager if not already loaded
+      if (!DelegationManagerContract) {
+        try {
+          // Use require() to bypass TypeScript module resolution issues
+          DelegationManagerContract = require("@metamask/delegation-toolkit/contracts").DelegationManager;
+        } catch (error) {
+          this.logger.error("Failed to load DelegationManager from toolkit", error);
+          throw new Error("MetaMask Delegation Toolkit not available");
+        }
+      }
+
       const redeemDelegationCalldata =
-        DelegationManager.encode.redeemDelegations({
+        DelegationManagerContract.encode.redeemDelegations({
           delegations,
           modes,
           executions,

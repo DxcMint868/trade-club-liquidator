@@ -1,20 +1,18 @@
 {
   "name": "trade-club-liquidator",
-  "workspaces": [
-    "indexer",
-    "backend",
-    "contracts"
-  ],
   "version": "1.0.0",
-  "description": "",
-  "license": "ISC",
-  "author": "",
-  "type": "commonjs",
-  "main": "index.js",
+  "description": "TradeClub - Multi-project repository with independent sub-projects",
+  "license": "MIT",
+  "author": "TradeClub Team",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "devDependencies": {
-    "@types/node": "^24.7.2"
+    "backend:dev": "cd backend && npm run start:dev",
+    "backend:build": "cd backend && npm run build",
+    "backend:start": "cd backend && npm run start:prod",
+    "contracts:compile": "cd contracts && npx hardhat compile",
+    "contracts:test": "cd contracts && npx hardhat test",
+    "frontend:dev": "cd mvp-frontend && npm run dev",
+    "frontend:build": "cd mvp-frontend && npm run build",
+    "indexer:dev": "cd indexer && npm run dev"
   }
 }

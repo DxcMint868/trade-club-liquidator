@@ -2,10 +2,10 @@ import { Injectable, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ethers } from "ethers";
 
-// Import contract ABIs
-import MatchManagerABI from "../../../contracts/artifacts/src/TradeClub_MatchManager.sol/TradeClub_MatchManager.json";
-import TradeClubTokenABI from "../../../contracts/artifacts/src/TradeClub_GovernanceToken.sol/TradeClub_GovernanceToken.json";
-import BribePoolABI from "../../../contracts/artifacts/src/TradeClub_BribePool.sol/TradeClub_BribePool.json";
+// Import contract ABIs from local abi folder
+import MatchManagerABI from "../abi/TradeClub_MatchManager.json";
+import TradeClubTokenABI from "../abi/TradeClub_GovernanceToken.json";
+import BribePoolABI from "../abi/TradeClub_BribePool.json";
 
 /**
  * Service for interacting with blockchain contracts
@@ -38,66 +38,81 @@ export class ContractService implements OnModuleInit {
     // Initialize provider
     this.provider = new ethers.JsonRpcProvider(rpcUrl);
     this.wallet = new ethers.Wallet(privateKey, this.provider);
-
-    console.log("💓 Connecting to blockchain...");
+    console.log("Connecting to blockchain...");
     console.log("RPC URL:", rpcUrl);
     console.log("Wallet:", this.wallet.address);
 
     // Initialize contracts
     const matchManagerAddress = this.configService.get<string>(
-      "MATCH_MANAGER_ADDRESS",
+      "MATCH_MANAGER_ADDRESS"
     );
     const govTokenAddress = this.configService.get<string>(
-      "GOVERNANCE_TOKEN_ADDRESS",
+      "GOVERNANCE_TOKEN_ADDRESS"
     );
     const bribePoolAddress =
       this.configService.get<string>("BRIBE_POOL_ADDRESS");
 
+    console.log("Contract Addresses from .env:");
+    console.log("  MATCH_MANAGER_ADDRESS:", matchManagerAddress);
+    console.log("  GOVERNANCE_TOKEN_ADDRESS:", govTokenAddress);
+    console.log("  BRIBE_POOL_ADDRESS:", bribePoolAddress);
+
+    if (!matchManagerAddress || !govTokenAddress || !bribePoolAddress) {
+      console.error("Missing required contract addresses in .env file!");
+      console.error(
+        "Please set MATCH_MANAGER_ADDRESS, GOVERNANCE_TOKEN_ADDRESS, and BRIBE_POOL_ADDRESS"
+      );
+      throw new Error("Missing contract addresses in environment variables");
+    }
+
     // MetaMask Delegation Framework addresses
     this.delegationManagerAddress = this.configService.get<string>(
       "DELEGATION_MANAGER_ADDRESS",
-      "0xc5d58A1569D82e7f6Be4C35c8dbBe0B6E87bE6ef", // Monad testnet default
+      "0xc5d58A1569D82e7f6Be4C35c8dbBe0B6E87bE6ef" // Monad testnet default
     );
 
     this.allowedEnforcers = {
       allowedTargets: this.configService.get<string>(
         "ENFORCER_ALLOWED_TARGETS",
-        "0x7F2065A48E32047474A9dF53C2e116c1e2de1b60",
+        "0x7F2065A48E32047474A9dF53C2e116c1e2de1b60"
       ),
       allowedMethods: this.configService.get<string>(
         "ENFORCER_ALLOWED_METHODS",
-        "0xc5d58A1569D82e7f6Be4C35c8dbBe0B6E87bE6ef",
+        "0xc5d58A1569D82e7f6Be4C35c8dbBe0B6E87bE6ef"
       ),
       timestamp: this.configService.get<string>(
         "ENFORCER_TIMESTAMP",
-        "0x1046aA7c37D64b1F6B8ef1c90D7989C1E66f8C5F",
+        "0x1046aA7c37D64b1F6B8ef1c90D7989C1E66f8C5F"
       ),
       valueLte: this.configService.get<string>(
         "ENFORCER_VALUE_LTE",
-        "0x61eCC94cE2883b0767507D2f6FAd77E07F27a21e",
+        "0x61eCC94cE2883b0767507D2f6FAd77E07F27a21e"
       ),
       limitedCalls: this.configService.get<string>(
         "ENFORCER_LIMITED_CALLS",
-        "0x44A6CbdECE346CF3dB30c53E9F062df5b7b09a11",
+        "0x44A6CbdECE346CF3dB30c53E9F062df5b7b09a11"
       ),
     };
+
+    // Use wallet for signing if available, otherwise read-only with provider
+    const signerOrProvider = this.wallet || this.provider;
 
     this.matchManager = new ethers.Contract(
       matchManagerAddress,
       MatchManagerABI.abi,
-      this.wallet,
+      signerOrProvider
     );
 
     this.govToken = new ethers.Contract(
       govTokenAddress,
       TradeClubTokenABI.abi,
-      this.wallet,
+      signerOrProvider
     );
 
     this.bribePool = new ethers.Contract(
       bribePoolAddress,
       BribePoolABI.abi,
-      this.wallet,
+      signerOrProvider
     );
 
     console.log("Contracts initialized");
@@ -114,7 +129,7 @@ export class ContractService implements OnModuleInit {
         network.name,
         "(chainId:",
         network.chainId.toString(),
-        ")",
+        ")"
       );
     } catch (error) {
       console.error("Failed to connect to blockchain:", error);
@@ -146,7 +161,7 @@ export class ContractService implements OnModuleInit {
     const delegationManager = new ethers.Contract(
       this.delegationManagerAddress,
       delegationManagerABI,
-      this.provider,
+      this.provider
     );
 
     return await delegationManager.getDelegatorAddress(userAddress);
@@ -160,7 +175,7 @@ export class ContractService implements OnModuleInit {
    */
   async isDelegationValid(
     delegationHash: string,
-    userAddress: string,
+    userAddress: string
   ): Promise<boolean> {
     try {
       const delegatorAddress = await this.getUserSmartAccount(userAddress);
@@ -173,7 +188,7 @@ export class ContractService implements OnModuleInit {
       const delegator = new ethers.Contract(
         delegatorAddress,
         delegatorABI,
-        this.provider,
+        this.provider
       );
 
       const delegation = await delegator.delegations(delegationHash);
@@ -202,7 +217,7 @@ export class ContractService implements OnModuleInit {
     const entryPoint = new ethers.Contract(
       entryPointAddress,
       entryPointABI,
-      this.provider,
+      this.provider
     );
 
     return await entryPoint.getNonce(smartAccountAddress, 0);

@@ -17,10 +17,8 @@
     "strictBindCallApply": false,
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false,
-    "esModuleInterop": true,
     "resolveJsonModule": true,
-    "paths": {
-      "@/*": ["src/*"]
-    }
-  }
+    "esModuleInterop": true
+  },
+  "exclude": ["node_modules", "dist"]
 }
