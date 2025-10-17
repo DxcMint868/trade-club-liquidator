@@ -1,140 +1,390 @@
 import { PrismaClient, MatchStatus } from "@prisma/client";
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  parseEther,
+  decodeEventLog,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { sepolia } from "viem/chains";
+// import { abi as MATCH_MANAGER_ABI } from "../src/abi/TradeClub_MatchManager.json";
+import * as dotenv from "dotenv";
+
+dotenv.config();
 
 const prisma = new PrismaClient();
 
+// Contract ABI - just the functions we need for seeding
+const MATCH_MANAGER_ABI = [
+  {
+    inputs: [
+      { internalType: "uint256", name: "_entryMargin", type: "uint256" },
+      { internalType: "uint256", name: "_duration", type: "uint256" },
+      { internalType: "uint256", name: "_maxMonachads", type: "uint256" },
+      {
+        internalType: "uint256",
+        name: "_maxSupportersPerMonachad",
+        type: "uint256",
+      },
+    ],
+    name: "createMatch",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "payable",
+    type: "function",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "uint256",
+        name: "matchId",
+        type: "uint256",
+      },
+      {
+        indexed: true,
+        internalType: "address",
+        name: "creator",
+        type: "address",
+      },
+      {
+        indexed: false,
+        internalType: "uint256",
+        name: "entryMargin",
+        type: "uint256",
+      },
+      {
+        indexed: false,
+        internalType: "uint256",
+        name: "duration",
+        type: "uint256",
+      },
+      {
+        indexed: false,
+        internalType: "uint256",
+        name: "maxMonachads",
+        type: "uint256",
+      },
+      {
+        indexed: false,
+        internalType: "uint256",
+        name: "maxSupportersPerMonachad",
+        type: "uint256",
+      },
+    ],
+    name: "MatchCreated",
+    type: "event",
+  },
+  {
+    inputs: [{ internalType: "uint256", name: "_matchId", type: "uint256" }],
+    name: "getMatch",
+    outputs: [
+      {
+        components: [
+          { internalType: "uint256", name: "id", type: "uint256" },
+          { internalType: "address", name: "creator", type: "address" },
+          { internalType: "uint256", name: "entryMargin", type: "uint256" },
+          { internalType: "uint256", name: "duration", type: "uint256" },
+          { internalType: "uint256", name: "startTime", type: "uint256" },
+          { internalType: "uint256", name: "endTime", type: "uint256" },
+          { internalType: "uint256", name: "maxMonachads", type: "uint256" },
+          {
+            internalType: "uint256",
+            name: "maxSupportersPerMonachad",
+            type: "uint256",
+          },
+          { internalType: "uint256", name: "prizePool", type: "uint256" },
+          {
+            internalType: "enum TradeClub_IMatchManager.MatchStatus",
+            name: "status",
+            type: "uint8",
+          },
+          {
+            internalType: "address[]",
+            name: "monachads",
+            type: "address[]",
+          },
+          { internalType: "address", name: "winner", type: "address" },
+        ],
+        internalType: "struct TradeClub_IMatchManager.Match",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
+
 async function main() {
-  console.log("🌱 Seeding database...");
+  console.log("🌱 Seeding database with real on-chain matches...");
 
-  // Clean existing data (optional - comment out if you want to keep existing data)
-  // await prisma.match.deleteMany({});
+  // Setup blockchain connection
+  const rpcUrl = process.env.RPC_URL!;
+  const privateKey = process.env.PRIVATE_KEY! as `0x${string}`;
+  const matchManagerAddress = process.env
+    .MATCH_MANAGER_ADDRESS! as `0x${string}`;
 
-  // Create some test matches
-  const matches = [
+  const account = privateKeyToAccount(privateKey);
+
+  const publicClient = createPublicClient({
+    chain: sepolia,
+    transport: http(rpcUrl),
+  });
+
+  const walletClient = createWalletClient({
+    account,
+    chain: sepolia,
+    transport: http(rpcUrl),
+  });
+
+  console.log(`📡 Connected to ${sepolia.name}`);
+  console.log(`👤 Using account: ${account.address}`);
+  console.log(`📝 MatchManager at: ${matchManagerAddress}`);
+
+  // Define matches to create on-chain
+  // Contract requires: duration between 1-24 hours, maxParticipants between 2-10
+  const matchesToCreate = [
     {
-      matchId: "0x1",
-      creator: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-      entryMargin: "1000000000000000000", // 1 ETH
-      duration: 86400, // 1 day
-      maxParticipants: 20,
-      prizePool: "5000000000000000000", // 5 ETH
-      status: MatchStatus.ACTIVE,
-      startTime: new Date(),
-      blockNumber: 1000,
-      transactionHash: "0x" + "1".repeat(64),
-      createdTxHash: "0x" + "1".repeat(64),
-      startedTxHash: "0x" + "2".repeat(64),
+      entryMargin: parseEther("0.01"), // 0.01 ETH
+      duration: 3600, // 1 hour (minimum allowed)
+      maxMonachads: 5,
+      maxSupportersPerMonachad: 20,
+      value: parseEther("0.01"),
     },
     {
-      matchId: "0x2",
-      creator: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-      entryMargin: "500000000000000000", // 0.5 ETH
-      duration: 172800, // 2 days
-      maxParticipants: 50,
-      prizePool: "10000000000000000000", // 10 ETH
-      status: MatchStatus.CREATED,
-      blockNumber: 1001,
-      transactionHash: "0x" + "3".repeat(64),
-      createdTxHash: "0x" + "3".repeat(64),
-    },
-    {
-      matchId: "0x3",
-      creator: "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199",
-      entryMargin: "2000000000000000000", // 2 ETH
-      duration: 259200, // 3 days
-      maxParticipants: 10,
-      prizePool: "15000000000000000000", // 15 ETH
-      status: MatchStatus.ACTIVE,
-      startTime: new Date(Date.now() - 3600000), // Started 1 hour ago
-      blockNumber: 1002,
-      transactionHash: "0x" + "4".repeat(64),
-      createdTxHash: "0x" + "4".repeat(64),
-      startedTxHash: "0x" + "5".repeat(64),
-    },
-    {
-      matchId: "0x4",
-      creator: "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199",
-      entryMargin: "100000000000000000", // 0.1 ETH
+      entryMargin: parseEther("0.005"), // 0.005 ETH
       duration: 43200, // 12 hours
-      maxParticipants: 100,
-      prizePool: "2000000000000000000", // 2 ETH
-      status: MatchStatus.CREATED,
-      blockNumber: 1003,
-      transactionHash: "0x" + "6".repeat(64),
-      createdTxHash: "0x" + "6".repeat(64),
+      maxMonachads: 10,
+      maxSupportersPerMonachad: 50,
+      value: parseEther("0.005"),
     },
     {
-      matchId: "0x5",
-      creator: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-      entryMargin: "5000000000000000000", // 5 ETH
-      duration: 604800, // 1 week
-      maxParticipants: 5,
-      prizePool: "20000000000000000000", // 20 ETH
-      status: MatchStatus.CREATED,
-      blockNumber: 1004,
-      transactionHash: "0x" + "7".repeat(64),
-      createdTxHash: "0x" + "7".repeat(64),
+      entryMargin: parseEther("0.02"), // 0.02 ETH
+      duration: 86400, // 24 hours (maximum allowed)
+      maxMonachads: 2,
+      maxSupportersPerMonachad: 100,
+      value: parseEther("0.02"),
     },
   ];
 
-  for (const match of matches) {
+  // Create matches on-chain
+  // for (let i = 0; i < matchesToCreate.length; i++) {
+  for (let i = 0; i < 1; i++) {
+    const matchConfig = matchesToCreate[i];
+
     try {
-      await prisma.match.upsert({
-        where: { matchId: match.matchId },
-        update: match,
-        create: match,
+      console.log(`\nCreating match ${i + 1}...`);
+      console.log(`  Entry Margin: ${matchConfig.entryMargin} wei`);
+      console.log(`  Duration: ${matchConfig.duration}s`);
+      console.log(`  Max Monachads: ${matchConfig.maxMonachads}`);
+      console.log(
+        `  Max Supporters per Monachad: ${matchConfig.maxSupportersPerMonachad}`
+      );
+
+      // Create match on-chain
+      const hash = await walletClient.writeContract({
+        address: matchManagerAddress,
+        abi: MATCH_MANAGER_ABI,
+        functionName: "createMatch",
+        args: [
+          matchConfig.entryMargin,
+          BigInt(matchConfig.duration),
+          BigInt(matchConfig.maxMonachads),
+          BigInt(matchConfig.maxSupportersPerMonachad),
+        ],
+        value: matchConfig.value,
+        account,
+        chain: sepolia,
       });
-      console.log(`Seeded match: ${match.matchId}`);
-    } catch (error) {
-      console.error(`Failed to seed match ${match.matchId}:`, error);
-    }
-  }
 
-  // Add some participants to active matches
-  const participants = [
-    {
-      matchId: "0x1",
-      address: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-      stakedAmount: "1000000000000000000",
-      pnl: "250000000000000000", // +0.25 ETH profit
-      joinedTxHash: "0x" + "a".repeat(64),
-    },
-    {
-      matchId: "0x1",
-      address: "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199",
-      stakedAmount: "1000000000000000000",
-      pnl: "-100000000000000000", // -0.1 ETH loss
-      joinedTxHash: "0x" + "b".repeat(64),
-    },
-    {
-      matchId: "0x3",
-      address: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-      stakedAmount: "2000000000000000000",
-      pnl: "500000000000000000", // +0.5 ETH profit
-      joinedTxHash: "0x" + "c".repeat(64),
-    },
-  ];
+      console.log(`  Transaction sent: ${hash}`);
+      console.log(`  Waiting for confirmation...`);
 
-  for (const participant of participants) {
-    try {
+      // Wait for transaction receipt
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      console.log(`  Confirmed in block ${receipt.blockNumber}`);
+
+      // Parse the MatchCreated event to get the real match ID
+      let matchIdDecimal: number | null = null;
+
+      for (const log of receipt.logs) {
+        try {
+          const decoded: any = decodeEventLog({
+            abi: MATCH_MANAGER_ABI,
+            data: log.data,
+            topics: (log as any).topics,
+          });
+
+          if (decoded.eventName === "MatchCreated") {
+            matchIdDecimal = Number(decoded.args.matchId);
+            break;
+          }
+        } catch (e) {
+          // Not the event we're looking for, continue
+          continue;
+        }
+      }
+
+      if (matchIdDecimal === null) {
+        throw new Error(
+          "Could not find MatchCreated event in transaction logs"
+        );
+      }
+
+      console.log(`  🎯 Match ID from blockchain: ${matchIdDecimal}`);
+
+      // Fetch match data from contract
+      const rawMatchData: any = await publicClient.readContract({
+        address: matchManagerAddress,
+        abi: MATCH_MANAGER_ABI,
+        functionName: "getMatch",
+        args: [BigInt(matchIdDecimal)],
+      } as any);
+
+      // Contract returns a struct - viem may return it as object or array depending on version
+      // Handle both cases
+      let id,
+        creator,
+        entryMargin,
+        duration,
+        startTime,
+        endTime,
+        maxMonachads,
+        maxSupportersPerMonachad,
+        prizePool,
+        status,
+        monachads,
+        winner;
+
+      if (Array.isArray(rawMatchData)) {
+        // Tuple/array format: [id, creator, entryMargin, duration, startTime, endTime, maxMonachads, maxSupportersPerMonachad, prizePool, status, monachads, winner]
+        [
+          id,
+          creator,
+          entryMargin,
+          duration,
+          startTime,
+          endTime,
+          maxMonachads,
+          maxSupportersPerMonachad,
+          prizePool,
+          status,
+          monachads,
+          winner,
+        ] = rawMatchData;
+      } else {
+        // Object format
+        ({
+          id,
+          creator,
+          entryMargin,
+          duration,
+          startTime,
+          endTime,
+          maxMonachads,
+          maxSupportersPerMonachad,
+          prizePool,
+          status,
+          monachads,
+          winner,
+        } = rawMatchData);
+      }
+
+      console.log(
+        `  📊 Match data: entry=${entryMargin}, duration=${duration}, maxMonachads=${maxMonachads}, pool=${prizePool}`
+      );
+
+      // Map contract status to Prisma enum
+      const statusMap: { [key: number]: MatchStatus } = {
+        0: MatchStatus.CREATED,
+        1: MatchStatus.ACTIVE,
+        2: MatchStatus.COMPLETED,
+        3: MatchStatus.SETTLED,
+      };
+
+      // Parse and validate data
+      const parsedStartTime =
+        startTime && Number(startTime) > 0
+          ? new Date(Number(startTime) * 1000)
+          : null;
+      const parsedEndTime =
+        endTime && Number(endTime) > 0
+          ? new Date(Number(endTime) * 1000)
+          : null;
+      const parsedWinner =
+        winner && winner !== "0x0000000000000000000000000000000000000000"
+          ? winner.toLowerCase()
+          : null;
+
+      // Insert into database
+      await prisma.match.upsert({
+        where: { matchId: matchIdDecimal.toString() },
+        update: {
+          creator: creator.toLowerCase(),
+          entryMargin: entryMargin.toString(),
+          duration: Number(duration),
+          maxParticipants: Number(maxMonachads),
+          maxSupporters: Number(maxSupportersPerMonachad),
+          prizePool: prizePool.toString(),
+          status: statusMap[status] || MatchStatus.CREATED,
+          startTime: parsedStartTime,
+          endTime: parsedEndTime,
+          winner: parsedWinner,
+          blockNumber: Number(receipt.blockNumber),
+          transactionHash: hash,
+          createdTxHash: hash,
+        },
+        create: {
+          matchId: matchIdDecimal.toString(),
+          creator: creator.toLowerCase(),
+          entryMargin: entryMargin.toString(),
+          duration: Number(duration),
+          maxParticipants: Number(maxMonachads),
+          maxSupporters: Number(maxSupportersPerMonachad),
+          prizePool: prizePool.toString(),
+          status: statusMap[status] || MatchStatus.CREATED,
+          startTime: parsedStartTime,
+          endTime: parsedEndTime,
+          winner: parsedWinner,
+          blockNumber: Number(receipt.blockNumber),
+          transactionHash: hash,
+          createdTxHash: hash,
+        },
+      });
+
+      // Add creator as participant (Monachad)
       await prisma.participant.upsert({
         where: {
           matchId_address: {
-            matchId: participant.matchId,
-            address: participant.address,
+            matchId: matchIdDecimal.toString(),
+            address: creator.toLowerCase(),
           },
         },
-        update: participant,
-        create: participant,
+        update: {
+          role: "MONACHAD",
+          stakedAmount: entryMargin.toString(),
+          joinedTxHash: hash,
+        },
+        create: {
+          matchId: matchIdDecimal.toString(),
+          address: creator.toLowerCase(),
+          role: "MONACHAD",
+          followingAddress: null,
+          stakedAmount: entryMargin.toString(),
+          pnl: "0",
+          joinedTxHash: hash,
+        },
       });
-      console.log(
-        `Seeded participant: ${participant.address} in match ${participant.matchId}`
-      );
-    } catch (error) {
-      console.error(`Failed to seed participant:`, error);
+
+      console.log(`  💾 Saved to database: Match ${matchIdDecimal}`);
+    } catch (error: any) {
+      console.error(`  ❌ Failed to create match ${i + 1}:`, error.message);
     }
   }
 
-  console.log("Database seeding completed!");
+  console.log("\n✅ Database seeding completed!");
 }
 
 main()

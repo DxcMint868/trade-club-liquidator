@@ -14,12 +14,13 @@ model Match {
   creator         String
   entryMargin     String
   duration        Int
-  maxParticipants Int
+  maxParticipants Int        // Max MONACHADS (competitors)
+  maxSupporters   Int?       // Optional: limit supporters per match
   prizePool       String
   status          MatchStatus @default(CREATED)
   startTime       DateTime?
   endTime         DateTime?
-  winner          String?
+  winner          String?    // Winning Monachad address
   blockNumber     Int
   transactionHash String
   createdTxHash   String?
@@ -38,14 +39,16 @@ model Match {
 }
 
 model Participant {
-  id           String   @id @default(cuid())
-  matchId      String
-  address      String
-  stakedAmount String
-  pnl          String   @default("0")
-  joinedTxHash String?
-  joinedAt     DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id              String          @id @default(cuid())
+  matchId         String
+  address         String
+  role            ParticipantRole @default(SUPPORTER) // MONACHAD or SUPPORTER
+  followingAddress String?        // If SUPPORTER: which Monachad they're following
+  stakedAmount    String
+  pnl             String          @default("0")
+  joinedTxHash    String?
+  joinedAt        DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   match  Match   @relation(fields: [matchId], references: [matchId])
   trades Trade[]
@@ -53,6 +56,8 @@ model Participant {
   @@unique([matchId, address])
   @@index([matchId])
   @@index([address])
+  @@index([role])
+  @@index([followingAddress])
 }
 
 model Delegation {
@@ -175,6 +180,11 @@ enum MatchStatus {
   ACTIVE
   COMPLETED
   SETTLED
+}
+
+enum ParticipantRole {
+  MONACHAD   // Competing trader
+  SUPPORTER  // Copy trader following a Monachad
 }
 
 enum TradeType {
