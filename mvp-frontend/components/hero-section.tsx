@@ -19,7 +19,8 @@ export function HeroSection() {
   const revealRef = useRef<HTMLDivElement>(null)
   
   useEffect(() => {
-    const observer = new IntersectionObserver(
+    // Observer for the second section (reveal)
+    const revealObserver = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
           setRevealVisible(true)
@@ -37,14 +38,16 @@ export function HeroSection() {
           setColorProgress(easedProgress)
         }
       },
-      { threshold: Array.from({ length: 51 }, (_, i) => i / 50) }, // Reduced from 101 to 51 for better performance
+      { threshold: 0.2 } // Start revealing when 20% of the section is visible
     )
 
     if (revealRef.current) {
-      observer.observe(revealRef.current)
+      revealObserver.observe(revealRef.current)
     }
 
-    return () => observer.disconnect()
+    return () => {
+      revealObserver.disconnect()
+    }
   }, [setColorProgress])
   
   return (

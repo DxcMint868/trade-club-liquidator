@@ -3,6 +3,7 @@
 import { Card } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Trophy, Users, TrendingUp } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 
 const topTraders = [
   { name: "Monachad", points: 15420, rank: 1 },
@@ -32,8 +33,37 @@ const steps = [
 ]
 
 export function ValleySection() {
+  const [isVisible, setIsVisible] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true)
+        }
+      },
+      { threshold: 0.2 },
+    )
+
+    if (ref.current) {
+      observer.observe(ref.current)
+    }
+
+    return () => observer.disconnect()
+  }, [])
+
   return (
-    <section className="relative min-h-screen py-20 px-4" id="leaderboard">
+    <section 
+      ref={ref}
+      className="relative min-h-screen py-20 px-4" 
+      id="leaderboard"
+    >
+      <div 
+        className={`transition-all duration-1000 ${
+          isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-12"
+        }`}
+      >
       {/* Valley arena background */}
       <div className="absolute inset-0 overflow-hidden">
         <svg viewBox="0 0 1200 600" className="absolute bottom-0 w-full opacity-20">
@@ -191,6 +221,7 @@ export function ValleySection() {
           </div>
           <p className="text-foreground/40 text-sm">© 2025 TradeClub. Built on Monad. Powered by degens.</p>
         </footer>
+      </div>
       </div>
     </section>
   )
