@@ -7,6 +7,16 @@ module.exports = {
   ],
   theme: {
     extend: {
+      keyframes: {
+        gossipPop: {
+          '0%': { transform: 'scale(1)', opacity: '0.9' },
+          '50%': { transform: 'scale(1.06)', opacity: '1' },
+          '100%': { transform: 'scale(1)', opacity: '0.95' },
+        },
+      },
+      animation: {
+        'gossip-pop': 'gossipPop 2.2s ease-in-out infinite',
+      },
       colors: {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',

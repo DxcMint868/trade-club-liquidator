@@ -21,7 +21,7 @@ const stats = [
   },
   {
     label: "Match Type",
-    value: "5x Leverage Battle",
+    value: "75x Leverage Deathmatch",
     color: "hsl(var(--neon-purple))",
   },
 ]
