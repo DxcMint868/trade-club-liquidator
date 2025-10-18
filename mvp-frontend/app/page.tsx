@@ -1,67 +1,48 @@
-'use client';
+'use client'
 
-import { ConnectButton } from '@rainbow-me/rainbowkit';
-import Link from 'next/link';
+import { HeroSection } from "@/components/hero-section"
+import { StatsSection } from "@/components/stats-section"
+import { ValleySection } from "@/components/valley-section"
+import { Navigation } from "@/components/navigation"
+import LightRays from '../components/ui/light-rays';
+import { ColorProvider } from "@/contexts/color-context"
 
 export default function Home() {
   return (
-    <div className="min-h-screen p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-12">
-          <h1 className="text-4xl font-bold">TradeClub MVP</h1>
-          <ConnectButton />
+    <ColorProvider>
+      <main className="relative min-h-screen">
+        {/* Smooth gradient background that transitions from custom purple to black across the entire page */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#080413] via-[#060310] via-30% to-[#04020d] to-60% to-black" />
+        
+        <div className="relative z-0">
+          <Navigation />
+          {/* Extended light rays with fade-out - covers full page dynamically */}
+          <div className="absolute inset-0 z-10 pointer-events-none">
+            <div className="relative w-full h-full">
+              <LightRays
+                raysOrigin="top-center"
+                raysColor="#ffffff"
+                raysSpeed={1.5}
+                lightSpread={0.8}
+                rayLength={3.0}
+                followMouse={true}
+                mouseInfluence={0.1}
+                noiseAmount={0.1}
+                distortion={0.05}
+                className="custom-rays"
+              />
+              {/* Smooth fade-out gradient overlay */}
+              <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent via-70% to-[#080413] pointer-events-none" />
+            </div>
+          </div>
+          {/* Content with higher z-index */}
+          <div className="relative z-20">
+            <HeroSection />
+            <StatsSection />
+            <ValleySection />
+          </div>
         </div>
-
-        {/* Nav Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <Link href="/onboarding" className="card hover:border-blue-500 transition-colors">
-            <h2 className="text-2xl font-semibold mb-2">1. Onboarding</h2>
-            <p className="text-gray-400">Deploy & manage your MetaMask smart account (DeleGator)</p>
-          </Link>
-
-          <Link href="/matches" className="card hover:border-blue-500 transition-colors">
-            <h2 className="text-2xl font-semibold mb-2">2. Matches</h2>
-            <p className="text-gray-400">Join matches and view active copy trading competitions</p>
-          </Link>
-
-          <Link href="/trade" className="card hover:border-green-500 transition-colors">
-            <h2 className="text-2xl font-semibold mb-2">3. Trade on FUNDex 😄</h2>
-            <p className="text-gray-400">Open perpetual positions on our demo DEX</p>
-          </Link>
-
-          <Link href="/delegation" className="card hover:border-blue-500 transition-colors">
-            <h2 className="text-2xl font-semibold mb-2">4. Create Delegation</h2>
-            <p className="text-gray-400">Sign delegations with enforcers (spending limits, targets, etc.)</p>
-          </Link>
-
-          <Link href="/view-delegations" className="card hover:border-blue-500 transition-colors">
-            <h2 className="text-2xl font-semibold mb-2">5. View Delegations</h2>
-            <p className="text-gray-400">See all signed delegations and their status</p>
-          </Link>
-
-          <Link href="/execute-trade" className="card hover:border-blue-500 transition-colors">
-            <h2 className="text-2xl font-semibold mb-2">6. Execute Trade (Bob)</h2>
-            <p className="text-gray-400">Test single or batch copy trade execution via delegation</p>
-          </Link>
-
-          <Link href="/monitor" className="card hover:border-blue-500 transition-colors">
-            <h2 className="text-2xl font-semibold mb-2">7. Monitor</h2>
-            <p className="text-gray-400">View trade results, UserOp status, and event logs</p>
-          </Link>
-        </div>
-
-        {/* Info Section */}
-        <div className="mt-12 card">
-          <h3 className="text-xl font-semibold mb-4">About This MVP</h3>
-          <ul className="text-gray-400 space-y-2">
-            <li>• Uses MetaMask Delegation Toolkit for smart account management</li>
-            <li>• Implements Bob-Alice delegation pattern with batching support</li>
-            <li>• Tests ERC-4337 UserOperation flows on Monad testnet</li>
-            <li>• Designed for rapid iteration and backend integration testing</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  );
+      </main>
+    </ColorProvider>
+  )
 }

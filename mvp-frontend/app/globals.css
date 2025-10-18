@@ -2,46 +2,100 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
+    --background: 240 15% 8%;
+    --foreground: 0 0% 98%;
+    --card: 240 12% 12%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 12% 12%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 271 81% 56%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 10% 18%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 10% 18%;
+    --muted-foreground: 0 0% 70%;
+    --accent: 271 50% 65%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 10% 20%;
+    --input: 240 10% 18%;
+    --ring: 271 81% 56%;
+    --neon-purple: 271 81% 56%;
+    --neon-blue: 220 100% 65%;
+    --neon-orange: 25 95% 65%;
+    --chart-1: 271 81% 56%;
+    --chart-2: 220 100% 65%;
+    --chart-3: 25 95% 65%;
+    --chart-4: 271 81% 56%;
+    --chart-5: 220 100% 65%;
+    --radius: 0.625rem;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    @apply text-foreground;
+    background: transparent;
   }
 }
 
-body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.card {
-  @apply border border-gray-700 rounded-lg p-6 bg-gray-800/50;
+@keyframes glitch {
+  0%,
+  100% {
+    transform: translate(0);
+  }
+  20% {
+    transform: translate(-2px, 2px);
+  }
+  40% {
+    transform: translate(-2px, -2px);
+  }
+  60% {
+    transform: translate(2px, 2px);
+  }
+  80% {
+    transform: translate(2px, -2px);
+  }
 }
 
-.btn {
-  @apply px-4 py-2 rounded-lg font-medium transition-colors;
+@keyframes neonPulse {
+  0%,
+  100% {
+    text-shadow: 0 0 5px currentColor, 0 0 10px currentColor, 0 0 15px currentColor;
+  }
+  50% {
+    text-shadow: 0 0 10px currentColor, 0 0 15px currentColor, 0 0 20px currentColor, 0 0 25px currentColor;
+  }
 }
 
-.btn-primary {
-  @apply bg-blue-600 hover:bg-blue-700 text-white;
+.animate-fade-in-up {
+  animation: fadeInUp 0.8s ease-out forwards;
 }
 
-.btn-secondary {
-  @apply bg-gray-700 hover:bg-gray-600 text-white;
+.animate-glitch {
+  animation: glitch 0.3s ease-in-out;
 }
 
-.input {
-  @apply w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white;
+.neon-glow {
+  text-shadow: 0 0 5px currentColor, 0 0 10px currentColor, 0 0 15px currentColor;
+}
+
+.neon-pulse {
+  animation: neonPulse 2s ease-in-out infinite;
 }
