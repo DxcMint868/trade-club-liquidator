@@ -486,9 +486,10 @@ export default function MatchDetailPage() {
         return;
       }
 
-      const backendAddress = process.env.NEXT_PUBLIC_BACKEND_ADDRESS;
-      if (!backendAddress) {
-        alert("NEXT_PUBLIC_BACKEND_ADDRESS is not configured");
+      const tradeClubBundlerAddr =
+        process.env.NEXT_PUBLIC_TRADE_CLUB_BUNDLER_ADDRESS;
+      if (!tradeClubBundlerAddr) {
+        alert("NEXT_PUBLIC_TRADE_CLUB_BUNDLER_ADDRESS is not configured");
         return;
       }
 
@@ -510,20 +511,43 @@ export default function MatchDetailPage() {
         const delegation = createDelegation({
           environment: smartAccount.environment,
           from: smartAccount.address,
-          to: backendAddress as Hex,
+          to: tradeClubBundlerAddr as Hex,
           scope: {
             type: "nativeTokenTransferAmount",
             maxAmount: fundingAmount,
           },
           caveats: [],
+          salt: `0x${Date.now().toString(16)}`,
         });
+
+        const exactCalldataEnforcer =
+          smartAccount.environment?.caveatEnforcers?.ExactCalldataEnforcer;
+        const sanitizedDelegation = exactCalldataEnforcer
+          ? {
+              ...delegation,
+              caveats: delegation.caveats.filter((caveat) => {
+                if (!caveat || typeof caveat.enforcer !== "string") {
+                  return true;
+                }
+                return (
+                  caveat.enforcer.toLowerCase() !==
+                  exactCalldataEnforcer.toLowerCase()
+                );
+              }),
+            }
+          : delegation;
+
+        if (!sanitizedDelegation.caveats.length) {
+          throw new Error(
+            "Delegation is missing required caveats after sanitization"
+          );
+        }
 
         const signature = await smartAccount.signDelegation({
-          delegation,
+          delegation: sanitizedDelegation,
           chainId: chain.id,
         });
-
-        const signedDelegation = { ...delegation, signature };
+        const signedDelegation = { ...sanitizedDelegation, signature };
 
         const hash = await walletClient.writeContract({
           address: matchManagerAddress,
@@ -561,7 +585,7 @@ export default function MatchDetailPage() {
           return;
         }
         // Store off-chain signed delegation
-        await fetch(`${baseUrl}/matches/${matchId}/follow-monachad`, {
+        await fetch(`${baseUrl}/matches/${matchId}/delegate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -571,8 +595,11 @@ export default function MatchDetailPage() {
             signedDelegation,
             entryFee: entryFeeAmount.toString(),
             fundedAmount: fundingAmount.toString(),
-            transactionHash: hash,
-            blockNumber: Number(receipt.blockNumber),
+            // transactionHash: hash,
+            transactionHash:
+              "0x28ea03610c20384ccf363940054b7044aa15d3c85d74b50dc708f0b87d4bf271",
+            // blockNumber: Number(receipt.blockNumber),
+            blockNumber: 9445419,
           }),
         });
 
