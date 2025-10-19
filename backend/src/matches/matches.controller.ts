@@ -81,7 +81,7 @@ export class MatchesController {
     );
   }
 
-  @Post(":matchId/follow-monachad")
+  @Post(":matchId/delegate")
   async followMonachad(
     @Param("matchId") matchId: string,
     @Body()
@@ -95,7 +95,7 @@ export class MatchesController {
       stakedAmount?: string;
     }
   ) {
-    return await this.matchesService.followMonachad(
+    return await this.matchesService.delegate(
       matchId,
       body.supporterAddress,
       body.monachadAddress,

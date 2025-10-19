@@ -2,6 +2,13 @@ import { Injectable, Logger } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { ContractService } from "../blockchain/contract.service";
 import { MatchStatus, ParticipantRole } from "@prisma/client";
+import {
+  hashDelegation,
+  type Caveat as CoreCaveat,
+  type Delegation as CoreDelegation,
+  type Hex,
+} from "@metamask/delegation-core";
+import { bytesToHex, hexToBigInt } from "viem";
 
 const BASIS_POINTS = 10000n;
 const ENTRY_FEE_BPS = 1000n;
@@ -132,7 +139,9 @@ export class MatchesService {
       entryMargin,
     } = payload;
 
-    this.logger.log(`Upserting participant ${participant} for match ${matchId}`);
+    this.logger.log(
+      `Upserting participant ${participant} for match ${matchId}`
+    );
 
     if (!participant) {
       this.logger.warn(
@@ -598,6 +607,8 @@ export class MatchesService {
       throw new Error(`User ${userAddress} already joined match ${matchId}`);
     }
 
+    const delegationHash = this.extractDelegationHash(signedDelegation);
+
     // Store signed delegation for future use
     const entryFeePaid = this.calculateEntryFeeFromMargin(match.entryMargin);
     const delegationData = {
@@ -608,7 +619,7 @@ export class MatchesService {
       spendingLimit: match.entryMargin, // For now, spending limit = entry margin
       spent: "0",
       expiresAt: new Date(Date.now() + match.duration * 1000),
-      delegationHash: signedDelegation.signature, // Use signature as hash for now
+      delegationHash,
       signedDelegation: JSON.stringify(signedDelegation),
       isActive: true,
       blockNumber: 0, // Will be updated when actually executed on-chain
@@ -718,6 +729,147 @@ export class MatchesService {
       );
       return "0";
     }
+  }
+
+  private extractDelegationHash(signedDelegation: any): string {
+    const candidateHash = signedDelegation?.delegationHash;
+    if (
+      typeof candidateHash === "string" &&
+      /^0x[a-fA-F0-9]{64}$/.test(candidateHash)
+    ) {
+      return candidateHash.toLowerCase();
+    }
+
+    if (!signedDelegation || typeof signedDelegation !== "object") {
+      throw new Error("Signed delegation payload is missing");
+    }
+
+    const { delegate, delegator, authority, caveats, salt, signature } =
+      signedDelegation;
+
+    const normalizeHex = (value: unknown, field: string): Hex => {
+      if (value instanceof Uint8Array) {
+        return bytesToHex(value).toLowerCase() as Hex;
+      }
+
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed.length) {
+          throw new Error(`Signed delegation ${field} is empty`);
+        }
+
+        const normalized = trimmed.toLowerCase();
+        if (!normalized.startsWith("0x") || !/^0x[0-9a-f]*$/.test(normalized)) {
+          throw new Error(
+            `Signed delegation ${field} must be a hex string prefixed with 0x`
+          );
+        }
+        return normalized as Hex;
+      }
+
+      throw new Error(`Signed delegation is missing ${field} in hex format`);
+    };
+
+    const normalizeSalt = (value: unknown): bigint => {
+      if (typeof value === "bigint") {
+        return value;
+      }
+      if (typeof value === "number") {
+        return BigInt(value);
+      }
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed.length) {
+          throw new Error("Signed delegation salt is empty");
+        }
+        if (trimmed === "0x" || trimmed === "0X") {
+          return 0n;
+        }
+        try {
+          return BigInt(trimmed);
+        } catch (error) {
+          const lower = trimmed.toLowerCase();
+          if (lower.startsWith("0x")) {
+            if (lower.length === 2) {
+              return 0n;
+            }
+            if (/^0x[0-9a-f]+$/.test(lower)) {
+              return hexToBigInt(lower as `0x${string}`);
+            }
+          }
+          throw new Error(
+            "Signed delegation salt must be a hex or decimal string"
+          );
+        }
+      }
+      if (value instanceof Uint8Array) {
+        if (value.length === 0) {
+          return 0n;
+        }
+        return hexToBigInt(bytesToHex(value) as `0x${string}`);
+      }
+      if (
+        value &&
+        typeof value === "object" &&
+        "hex" in (value as any) &&
+        typeof (value as any).hex === "string"
+      ) {
+        const hexValue = (value as any).hex as string;
+        const normalized = hexValue.trim().toLowerCase();
+        if (!normalized.startsWith("0x")) {
+          throw new Error(
+            "Signed delegation salt hex property must be a valid hex string"
+          );
+        }
+        if (normalized.length === 2) {
+          return 0n;
+        }
+        if (!/^0x[0-9a-f]+$/.test(normalized)) {
+          throw new Error(
+            "Signed delegation salt hex property must be a valid hex string"
+          );
+        }
+        return hexToBigInt(normalized as `0x${string}`);
+      }
+      throw new Error("Signed delegation is missing salt");
+    };
+
+    const normalizedCaveats: CoreCaveat[] = Array.isArray(caveats)
+      ? caveats.map((caveat: any) => {
+          if (!caveat || typeof caveat !== "object") {
+            throw new Error(
+              "Signed delegation contains an invalid caveat entry"
+            );
+          }
+
+          return {
+            enforcer: normalizeHex(caveat.enforcer, "caveat.enforcer"),
+            terms: normalizeHex(caveat.terms ?? "0x", "caveat.terms"),
+            args: normalizeHex(caveat.args ?? "0x", "caveat.args"),
+          };
+        })
+      : [];
+
+    const delegationStruct: CoreDelegation = {
+      delegate: normalizeHex(delegate, "delegate"),
+      delegator: normalizeHex(delegator, "delegator"),
+      authority: normalizeHex(authority ?? "0x", "authority"),
+      caveats: normalizedCaveats,
+      salt: normalizeSalt(salt),
+      signature: normalizeHex(signature, "signature"),
+    };
+
+    const computedHash = hashDelegation(delegationStruct);
+    if (
+      typeof computedHash !== "string" ||
+      !/^0x[a-fA-F0-9]{64}$/.test(computedHash)
+    ) {
+      throw new Error(
+        "Unable to derive delegation hash from signed delegation"
+      );
+    }
+
+    return computedHash.toLowerCase();
   }
 
   // New methods for Monachad/Supporter flow
@@ -922,7 +1074,7 @@ export class MatchesService {
   /**
    * Follow a Monachad in a match (join as supporter/copy trader)
    */
-  async followMonachad(
+  async delegate(
     matchId: string,
     supporterAddress: string,
     monachadAddress: string,
@@ -950,12 +1102,14 @@ export class MatchesService {
       );
     }
 
-    // Check if Monachad exists in this match
-    const monachad = match.participants.find(
-      (p) =>
-        p.address.toLowerCase() === monachadAddress.toLowerCase() &&
-        p.role === "MONACHAD"
-    );
+    // Verify monachad exists in this match
+    const monachad = await this.db.participant.findFirst({
+      where: {
+        matchId,
+        address: monachadAddress.toLowerCase(),
+        role: "MONACHAD",
+      },
+    });
 
     if (!monachad) {
       throw new Error(
@@ -963,36 +1117,39 @@ export class MatchesService {
       );
     }
 
-    // Check if supporter already joined
-    const existingParticipant = match.participants.find(
-      (p) => p.address.toLowerCase() === supporterAddress.toLowerCase()
-    );
-
-    if (existingParticipant) {
+    const existingDelegation = await this.db.delegation.findFirst({
+      where: {
+        matchId,
+        supporter: supporterAddress.toLowerCase(),
+        monachad: monachadAddress.toLowerCase(),
+        isActive: true,
+      },
+    });
+    if (existingDelegation) {
       throw new Error(
-        `User ${supporterAddress} already joined match ${matchId}`
+        `User ${supporterAddress} already delegated for Monachad ${monachadAddress} in match ${matchId}`
       );
     }
 
     // Count current supporters for this Monachad
-    const currentSupporters = match.participants.filter(
-      (p) =>
-        p.role === "SUPPORTER" &&
-        p.followingAddress?.toLowerCase() === monachadAddress.toLowerCase()
-    ).length;
+    const monachadSupporterCount = await this.db.participant.count({
+      where: {
+        matchId,
+        role: "SUPPORTER",
+        followingAddress: monachadAddress.toLowerCase(),
+      },
+    });
 
-    if (match.maxSupporters && currentSupporters >= match.maxSupporters) {
+    if (match.maxSupporters && monachadSupporterCount >= match.maxSupporters) {
       throw new Error(`Monachad ${monachadAddress} already has max supporters`);
     }
 
-    const normalizedEntryFee =
-      entryFeePaid ??
-      stakedAmountLegacy ??
-      this.calculateEntryFeeFromMargin(match.entryMargin);
     const normalizedFundedAmount =
       fundedAmount !== undefined && fundedAmount !== null
         ? String(fundedAmount)
         : "0";
+
+    const delegationHash = this.extractDelegationHash(signedDelegation);
 
     // Store delegation
     const delegationData = {
@@ -1003,7 +1160,7 @@ export class MatchesService {
       spendingLimit: normalizedFundedAmount,
       spent: "0",
       expiresAt: new Date(Date.now() + match.duration * 1000),
-      delegationHash: signedDelegation.signature,
+      delegationHash,
       signedDelegation: JSON.stringify(signedDelegation),
       isActive: true,
       blockNumber: 0,
@@ -1011,27 +1168,24 @@ export class MatchesService {
     };
 
     // Create participant and delegation in a transaction
-    const result = await this.db.$transaction(async (tx) => {
-      const participant = await tx.participant.create({
-        data: {
-          matchId,
-          address: supporterAddress.toLowerCase(),
-          role: "SUPPORTER",
-          followingAddress: monachadAddress.toLowerCase(),
-          marginAmount: "0",
-          entryFeePaid: String(normalizedEntryFee),
-          fundedAmount: normalizedFundedAmount,
-          pnl: "0",
-          joinedTxHash: "0x0",
-        } as any,
-      });
+    // const result = await this.db.$transaction(async (tx) => {
+    // const participant = await tx.participant.create({
+    //   data: {
+    //     matchId,
+    //     address: supporterAddress.toLowerCase(),
+    //     role: "SUPPORTER",
+    //     followingAddress: monachadAddress.toLowerCase(),
+    //     marginAmount: "0",
+    //     entryFeePaid: String(normalizedEntryFee),
+    //     fundedAmount: normalizedFundedAmount,
+    //     pnl: "0",
+    //     joinedTxHash: "0x0",
+    //   } as any,
+    // });
 
-      this.logger.debug(`Delegation Data: ${JSON.stringify(delegationData)}`);
-      const delegation = await tx.delegation.create({
-        data: delegationData,
-      });
-
-      return { participant, delegation };
+    this.logger.debug(`Delegation Data: ${JSON.stringify(delegationData)}`);
+    const delegation = await this.db.delegation.create({
+      data: delegationData,
     });
 
     this.logger.log(
@@ -1040,10 +1194,9 @@ export class MatchesService {
 
     return {
       success: true,
-      participant: result.participant,
       delegation: {
-        delegationHash: result.delegation.delegationHash,
-        expiresAt: result.delegation.expiresAt,
+        delegationHash: delegation.delegationHash,
+        expiresAt: delegation.expiresAt,
       },
       role: "SUPPORTER",
       followingMonachad: monachadAddress,

@@ -181,11 +181,15 @@ export class DelegationService {
   ): Promise<boolean> {
     if (!delegation) return false;
 
-    // Check on-chain with the delegator (supporter) address
-    const isValidOnChain = await this.contractService.isDelegationValid(
-      delegation.delegationHash,
-      delegation.supporter // The supporter is the delegator
-    );
+    const isBytes32Hash = /^0x[a-f0-9]{64}$/i.test(delegation.delegationHash); // Ensure we only hit the chain when we have a proper bytes32 hash
+
+    // Check on-chain with the delegator (supporter) address when hash is valid bytes32
+    const isValidOnChain = isBytes32Hash
+      ? await this.contractService.isDelegationValid(
+          delegation.delegationHash,
+          delegation.supporter // The supporter is the delegator
+        )
+      : true;
 
     if (!isValidOnChain) {
       // Update DB if not valid on-chain

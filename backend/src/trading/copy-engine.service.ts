@@ -1,18 +1,34 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { DatabaseService } from "../database/database.service";
 import { ContractService } from "../blockchain/contract.service";
 import { DelegationService } from "../delegation/delegation.service";
 import { TradingService } from "./trading.service";
 import { ParticipantRole, TradeType } from "@prisma/client";
-import { createPublicClient, http, type Hex } from "viem";
+import {
+  createPublicClient,
+  createWalletClient,
+  defineChain,
+  http,
+  type Chain,
+  type Hex,
+} from "viem";
 import { createBundlerClient } from "viem/account-abstraction";
+import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import {
   createExecution,
   ExecutionMode,
+  Implementation,
+  PREFERRED_VERSION,
+  getDeleGatorEnvironment,
   type Delegation,
+  type DeleGatorEnvironment,
+  type MetaMaskSmartAccount,
+  toMetaMaskSmartAccount,
 } from "@metamask/delegation-toolkit";
 import { Delegation as DelegationInDb } from "@prisma/client";
+import { sepolia } from "viem/chains";
+import { monadTestnet } from "../blockchain/monad-chain";
 
 // DelegationManager contract - loaded dynamically at runtime
 let DelegationManagerContract: any;
@@ -51,13 +67,23 @@ interface BatchCopyTrade {
 }
 
 @Injectable()
-export class CopyEngineService {
+export class CopyEngineService implements OnModuleInit {
   private readonly logger = new Logger(CopyEngineService.name);
   private readonly bundlerUrl: string;
   private readonly entryPointAddress: string;
   private readonly rpcUrl: string;
+  private readonly chainId: number;
+  private readonly chain: Chain;
   private readonly publicClient: any;
   private readonly bundlerClient: any;
+  private bundlerAccount: MetaMaskSmartAccount | null = null;
+  private bundlerOwnerAccount: PrivateKeyAccount | null = null;
+  private bundlerSignerKey?: string;
+  private environment?: DeleGatorEnvironment;
+  private bundlerWalletClient: any;
+  private readonly knownExactCalldataEnforcers = new Set<Hex>([
+    "0x99f2e9bf15ce5ec84685604836f71ab835dbbded" as Hex,
+  ]);
 
   constructor(
     private db: DatabaseService,
@@ -81,8 +107,11 @@ export class CopyEngineService {
       "0x0000000071727De22E5E9d8BAf0edAc6f37da032"
     );
 
-    // Initialize Viem clients for MetaMask Delegation Toolkit
+    this.chainId = Number(this.configService.get<number>("CHAIN_ID", 10143));
+    this.chain = this.resolveChain(this.chainId, this.rpcUrl);
+
     this.publicClient = createPublicClient({
+      chain: this.chain,
       transport: http(this.rpcUrl),
     });
 
@@ -90,6 +119,216 @@ export class CopyEngineService {
       client: this.publicClient,
       transport: http(this.bundlerUrl),
     });
+
+    this.bundlerSignerKey = this.configService
+      .get<string>("BUNDLER_SIGNER_KEY")
+      ?.trim();
+
+    if (!this.bundlerSignerKey) {
+      this.logger.warn(
+        "BUNDLER_SIGNER_KEY is not configured; copy trades cannot be submitted"
+      );
+    }
+  }
+
+  async onModuleInit(): Promise<void> {
+    await this.initializeBundlerAccount();
+  }
+
+  private resolveChain(chainId: number, rpcUrl: string): Chain {
+    if (chainId === 10143) {
+      return monadTestnet;
+    }
+
+    if (chainId === 11155111) {
+      return sepolia;
+    }
+
+    return defineChain({
+      id: chainId,
+      name: `Chain-${chainId}`,
+      nativeCurrency: {
+        decimals: 18,
+        name: "Ether",
+        symbol: "ETH",
+      },
+      rpcUrls: {
+        default: {
+          http: [rpcUrl],
+        },
+        public: {
+          http: [rpcUrl],
+        },
+      },
+      testnet: true,
+    });
+  }
+
+  private async initializeBundlerAccount(): Promise<void> {
+    if (!this.bundlerSignerKey) {
+      return;
+    }
+
+    try {
+      const normalizedKey = this.normalizePrivateKey(this.bundlerSignerKey);
+      this.bundlerOwnerAccount = privateKeyToAccount(normalizedKey);
+
+      this.environment = this.resolveDelegationEnvironment();
+
+      this.bundlerAccount = await toMetaMaskSmartAccount({
+        client: this.publicClient,
+        implementation: Implementation.Hybrid,
+        deployParams: [this.bundlerOwnerAccount.address as Hex, [], [], []],
+        deploySalt: "0x",
+        signer: { account: this.bundlerOwnerAccount },
+        environment: this.environment,
+      });
+
+      this.bundlerWalletClient = createWalletClient({
+        account: this.bundlerOwnerAccount,
+        chain: this.chain,
+        transport: http(this.rpcUrl),
+      });
+
+      this.logger.log(
+        `Bundler smart account ready: ${this.bundlerAccount.address}`
+      );
+
+      await this.ensureBundlerSmartAccountDeployed();
+    } catch (error) {
+      this.logger.error("Failed to initialize bundler smart account", error);
+      this.bundlerAccount = null;
+      this.bundlerOwnerAccount = null;
+      this.bundlerWalletClient = null;
+    }
+  }
+
+  private resolveDelegationEnvironment(): DeleGatorEnvironment | undefined {
+    try {
+      const environment = getDeleGatorEnvironment(
+        this.chainId,
+        PREFERRED_VERSION
+      );
+      this.logger.log(
+        `Loaded delegation environment for chain ${this.chainId} (v${PREFERRED_VERSION})`
+      );
+      return environment;
+    } catch (error) {
+      this.logger.warn(
+        `No prebuilt delegation environment found for chain ${this.chainId}: ${error instanceof Error ? error.message : error}`
+      );
+      return undefined;
+    }
+  }
+
+  private normalizePrivateKey(key: string): Hex {
+    return key.startsWith("0x") ? (key as Hex) : (`0x${key}` as Hex);
+  }
+
+  private async ensureBundlerSmartAccountDeployed(): Promise<void> {
+    const address = this.bundlerAccount.address as Hex;
+    if (!this.bundlerAccount || !this.bundlerOwnerAccount) {
+      const deployedCode = await this.publicClient.getCode({ address });
+
+      if (!deployedCode || deployedCode === "0x") {
+        this.logger.warn(
+          `Chain ${this.chainId} returned no code for ${address} despite logged deployment.`
+        );
+      } else {
+        this.logger.log("Bundler smart account already deployed");
+      }
+
+      return;
+    }
+    this.logger.debug?.(
+      `Ensuring bundler smart account deployed at ${address}`
+    );
+
+    const existingCode = await this.publicClient.getCode({ address });
+
+    if (existingCode && existingCode !== "0x") {
+      this.logger.log("Bundler smart account already deployed");
+      return;
+    }
+
+    const { factory, factoryData } = await this.bundlerAccount.getFactoryArgs();
+
+    if (!factory || factory === "0x" || !factoryData || factoryData === "0x") {
+      throw new Error(
+        "Bundler smart account missing factory deployment data; cannot deploy"
+      );
+    }
+
+    if (!this.bundlerWalletClient) {
+      throw new Error("Bundler wallet client is not available for deployment");
+    }
+
+    this.logger.log("Deploying bundler smart account before first use");
+
+    const balance = await this.publicClient.getBalance({
+      address: this.bundlerOwnerAccount.address as Hex,
+    });
+
+    if (balance === 0n) {
+      throw new Error(
+        `Bundler signer ${this.bundlerOwnerAccount.address} has zero balance on chain ${this.chainId}. Fund it before executing copy trades.`
+      );
+    }
+
+    const gasEstimate = await this.publicClient.estimateGas({
+      account: this.bundlerOwnerAccount,
+      to: factory,
+      data: factoryData as Hex,
+      value: 0n,
+    });
+
+    const gasWithBuffer = (gasEstimate * 12n) / 10n; // 20% buffer
+
+    const txHash = await this.bundlerWalletClient.sendTransaction({
+      to: factory,
+      data: factoryData as Hex,
+      value: 0n,
+      gas: gasWithBuffer,
+    });
+
+    this.logger.log(`Bundler smart account deployment tx sent: ${txHash}`);
+
+    const receipt = await this.publicClient.waitForTransactionReceipt({
+      hash: txHash,
+    });
+
+    if (receipt.status !== "success") {
+      throw new Error("Bundler smart account deployment transaction failed");
+    }
+
+    const deployedCode = await this.publicClient.getCode({ address });
+
+    if (!deployedCode || deployedCode === "0x") {
+      throw new Error(
+        "Deployment verification failed for bundler smart account"
+      );
+    }
+
+    this.logger.log("Bundler smart account deployed successfully");
+  }
+
+  private getDelegationManagerAddress(): Hex {
+    const fromEnvironment = this.environment?.DelegationManager as
+      | Hex
+      | undefined;
+    const fromConfig = this.configService.get<string>(
+      "DELEGATION_MANAGER_ADDRESS"
+    );
+
+    const address = fromEnvironment ?? fromConfig;
+
+    if (!address) {
+      throw new Error("DelegationManager address is not configured");
+    }
+
+    return address.startsWith("0x")
+      ? (address as Hex)
+      : (`0x${address}` as Hex);
   }
 
   /**
@@ -184,6 +423,13 @@ export class CopyEngineService {
           continue;
         }
 
+        if (this.hasBlockingExactCalldataCaveat(signedDelegation)) {
+          this.logger.warn(
+            `Delegation ${delegation.delegationHash} enforces empty calldata via ExactCalldata enforcer; supporter must re-delegate before copy trades can execute.`
+          );
+          continue;
+        }
+
         batchTrades.push({
           delegation: signedDelegation,
           delegationRecord: delegation,
@@ -221,7 +467,7 @@ export class CopyEngineService {
       // Prepare all delegations and executions for batch submission
       const delegations: SignedDelegation[][] = [];
       const modes: ExecutionMode[] = [];
-      const executions: any[] = [];
+      const executions: Array<ReturnType<typeof createExecution>[]> = [];
 
       for (const trade of batchTrades) {
         // Each trade gets its own delegation chain (single delegation for now)
@@ -231,13 +477,13 @@ export class CopyEngineService {
         modes.push(ExecutionMode.SingleDefault);
 
         // Create execution for this trade
-        executions.push(
+        executions.push([
           createExecution({
             target: trade.target as Hex,
             value: trade.value,
             callData: trade.data as Hex,
-          })
-        );
+          }),
+        ]);
       }
 
       // Build the redeemDelegations calldata using MetaMask toolkit
@@ -264,13 +510,20 @@ export class CopyEngineService {
         });
 
       // Get the DeleGator address from first trade (they all redeem through same DelegationManager)
-      const delegationManagerAddress = this.configService.get<string>(
-        "DELEGATION_MANAGER_ADDRESS"
-      ) as Hex;
+      const delegationManagerAddress = this.getDelegationManagerAddress();
 
       // Submit as a single bundler transaction
       // The bundler will process all redemptions atomically
+      if (!this.bundlerAccount) {
+        throw new Error(
+          "BUNDLER_SIGNER_KEY is missing; cannot submit copy trade"
+        );
+      }
+
+      await this.ensureBundlerSmartAccountDeployed();
+
       const userOpHash = await this.bundlerClient.sendUserOperation({
+        account: this.bundlerAccount as any,
         calls: [
           {
             to: delegationManagerAddress,
@@ -300,7 +553,7 @@ export class CopyEngineService {
       await this.recordBatchTrades(
         batchTrades,
         matchId,
-        receipt.receipt.blockNumber,
+        Number(receipt.receipt.blockNumber),
         receipt.receipt.transactionHash
       );
     } catch (error) {
@@ -395,6 +648,47 @@ export class CopyEngineService {
       return null;
     }
     return JSON.parse(delegation.signedDelegation);
+  }
+
+  private hasBlockingExactCalldataCaveat(
+    delegation: SignedDelegation
+  ): boolean {
+    if (!delegation || !Array.isArray((delegation as any).caveats)) {
+      return false;
+    }
+
+    const enforcerAddresses = new Set<string>();
+    for (const known of this.knownExactCalldataEnforcers) {
+      enforcerAddresses.add(known.toLowerCase());
+    }
+
+    const envExactCalldata = this.environment?.caveatEnforcers
+      ?.ExactCalldataEnforcer;
+    if (typeof envExactCalldata === "string") {
+      enforcerAddresses.add(envExactCalldata.toLowerCase());
+    }
+
+    return (delegation as any).caveats.some((caveat: any) => {
+      if (!caveat || typeof caveat !== "object") {
+        return false;
+      }
+
+      const enforcer =
+        typeof caveat.enforcer === "string"
+          ? caveat.enforcer.toLowerCase()
+          : "";
+      if (!enforcerAddresses.has(enforcer)) {
+        return false;
+      }
+
+      const terms =
+        typeof caveat.terms === "string"
+          ? caveat.terms.toLowerCase()
+          : "";
+
+      // Default ExactCalldata caveat enforces empty calldata, which blocks copy trades.
+      return terms === "0x" || terms === "0x0";
+    });
   }
 
   /**

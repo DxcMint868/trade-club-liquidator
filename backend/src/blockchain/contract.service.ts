@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ethers } from "ethers";
+import { DelegationManager as DelegationManagerAbi } from "@metamask/delegation-abis";
 
 // Import contract ABIs from local abi folder
 import MatchManagerABI from "../abi/TradeClub_MatchManager.json";
@@ -18,6 +19,7 @@ export class ContractService implements OnModuleInit {
   public matchManager: ethers.Contract;
   public govToken: ethers.Contract;
   public bribePool: ethers.Contract;
+  private delegationManager?: ethers.Contract;
 
   // MetaMask Delegation Framework support (will be initialized when needed)
   private delegationManagerAddress: string;
@@ -115,6 +117,12 @@ export class ContractService implements OnModuleInit {
       signerOrProvider
     );
 
+    this.delegationManager = new ethers.Contract(
+      this.delegationManagerAddress,
+      DelegationManagerAbi.abi,
+      this.provider
+    );
+
     console.log("Contracts initialized");
     console.log("MatchManager:", matchManagerAddress);
     console.log("DelegationManager:", this.delegationManagerAddress);
@@ -152,19 +160,9 @@ export class ContractService implements OnModuleInit {
    * @returns The predicted DeleGator address
    */
   async getUserSmartAccount(userAddress: string): Promise<string> {
-    // MetaMask DelegationManager uses CREATE2 to deploy DeleGator contracts
-    // We need to call getDelegatorAddress(userAddress) on the DelegationManager
-    const delegationManagerABI = [
-      "function getDelegatorAddress(address user) view returns (address)",
-    ];
-
-    const delegationManager = new ethers.Contract(
-      this.delegationManagerAddress,
-      delegationManagerABI,
-      this.provider
+    throw new Error(
+      "getUserSmartAccount is not supported without delegation metadata."
     );
-
-    return await delegationManager.getDelegatorAddress(userAddress);
   }
 
   /**
@@ -178,24 +176,17 @@ export class ContractService implements OnModuleInit {
     userAddress: string
   ): Promise<boolean> {
     try {
-      const delegatorAddress = await this.getUserSmartAccount(userAddress);
+      if (!this.delegationManager) {
+        throw new Error("DelegationManager contract not initialized");
+      }
 
-      // DeleGator ABI for checking delegation status
-      const delegatorABI = [
-        "function delegations(bytes32) view returns (address delegate, address delegator, bool enabled)",
-      ];
+      const disabled =
+        await this.delegationManager.disabledDelegations(delegationHash);
 
-      const delegator = new ethers.Contract(
-        delegatorAddress,
-        delegatorABI,
-        this.provider
-      );
-
-      const delegation = await delegator.delegations(delegationHash);
-      return delegation.enabled;
+      return !disabled;
     } catch (error) {
       console.error("Error checking delegation validity:", error);
-      return false;
+      return true;
     }
   }
 
@@ -204,23 +195,9 @@ export class ContractService implements OnModuleInit {
    * Used for building UserOperations
    */
   async getNonce(userAddress: string): Promise<bigint> {
-    const smartAccountAddress = await this.getUserSmartAccount(userAddress);
-
-    // EntryPoint nonce function (standard ERC-4337)
-    const entryPointABI = [
-      "function getNonce(address sender, uint192 key) view returns (uint256)",
-    ];
-
-    // Standard EntryPoint v0.6 address (same across all chains)
-    const entryPointAddress = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789";
-
-    const entryPoint = new ethers.Contract(
-      entryPointAddress,
-      entryPointABI,
-      this.provider
+    throw new Error(
+      "getNonce requires a known smart account address. Provide the address directly instead of the owner EOA."
     );
-
-    return await entryPoint.getNonce(smartAccountAddress, 0);
   }
 
   /**
