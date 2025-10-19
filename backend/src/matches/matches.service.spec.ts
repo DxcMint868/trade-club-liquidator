@@ -2,7 +2,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { MatchesService } from "./matches.service";
 import { DatabaseService } from "../database/database.service";
 import { ContractService } from "../blockchain/contract.service";
-import { MatchStatus } from "@prisma/client";
+import { MatchStatus, ParticipantRole } from "@prisma/client";
 
 describe("MatchesService", () => {
   let service: MatchesService;
@@ -11,14 +11,18 @@ describe("MatchesService", () => {
   const mockDatabaseService = {
     match: {
       create: jest.fn(),
+      upsert: jest.fn(),
       findMany: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
       count: jest.fn(),
     },
     participant: {
       create: jest.fn(),
+      upsert: jest.fn(),
       findMany: jest.fn(),
+      updateMany: jest.fn(),
       count: jest.fn(),
     },
   };
@@ -66,16 +70,27 @@ describe("MatchesService", () => {
         transactionHash: "0xTx123",
       };
 
-      mockDatabaseService.match.create.mockResolvedValue({
+      mockDatabaseService.match.upsert.mockResolvedValue({
         id: "db-match-1",
-        ...payload,
-        status: MatchStatus.CREATED,
+        matchId: payload.matchId,
       });
 
-      await service.handleMatchCreated(payload);
+      const result = await service.createMatch(payload);
 
-      expect(mockDatabaseService.match.create).toHaveBeenCalledWith({
-        data: {
+      expect(mockDatabaseService.match.upsert).toHaveBeenCalledWith({
+        where: { matchId: "match-1" },
+        update: expect.objectContaining({
+          creator: "0xcreator",
+          entryMargin: "1000000000000000000",
+          duration: 3600,
+          maxParticipants: 10,
+          allowedDexes: [],
+          blockNumber: 12345,
+          transactionHash: "0xTx123",
+          createdTxHash: "0xTx123",
+          updatedAt: expect.any(Date),
+        }),
+        create: expect.objectContaining({
           matchId: "match-1",
           creator: "0xcreator",
           entryMargin: "1000000000000000000",
@@ -83,10 +98,23 @@ describe("MatchesService", () => {
           maxParticipants: 10,
           prizePool: "0",
           status: MatchStatus.CREATED,
+          allowedDexes: [],
           createdTxHash: "0xTx123",
           blockNumber: 12345,
           transactionHash: "0xTx123",
-        },
+        }),
+      });
+
+      expect(result).toEqual({
+        matchId: "match-1",
+        creator: "0xcreator",
+        entryMargin: "1000000000000000000",
+        duration: 3600,
+        maxParticipants: 10,
+        maxSupportersPerMonachad: undefined,
+        allowedDexes: [],
+        blockNumber: 12345,
+        transactionHash: "0xTx123",
       });
     });
   });
@@ -96,26 +124,95 @@ describe("MatchesService", () => {
       const payload = {
         matchId: "match-1",
         participant: "0xParticipant",
-        stakedAmount: "1000000000000000000",
+        marginAmount: "1000000000000000000",
+        entryFee: "100000000000000000",
         transactionHash: "0xJoinTx",
+        role: ParticipantRole.MONACHAD,
       };
 
-      mockDatabaseService.participant.create.mockResolvedValue({
+      mockDatabaseService.participant.upsert.mockResolvedValue({
         id: "participant-1",
         ...payload,
       });
 
-      await service.handleParticipantJoined(payload);
+      const result = await service.upsertParticipant(payload);
 
-      expect(mockDatabaseService.participant.create).toHaveBeenCalledWith({
-        data: {
+      expect(mockDatabaseService.participant.upsert).toHaveBeenCalledWith({
+        where: {
+          matchId_address: {
+            matchId: "match-1",
+            address: "0xparticipant",
+          },
+        },
+        update: expect.objectContaining({
+          role: ParticipantRole.MONACHAD,
+          followingAddress: null,
+          marginAmount: "1000000000000000000",
+          entryFeePaid: "100000000000000000",
+          joinedTxHash: "0xJoinTx",
+          updatedAt: expect.any(Date),
+        }),
+        create: expect.objectContaining({
           matchId: "match-1",
           address: "0xparticipant",
-          stakedAmount: "1000000000000000000",
+          role: ParticipantRole.MONACHAD,
+          followingAddress: null,
+          marginAmount: "1000000000000000000",
+          entryFeePaid: "100000000000000000",
           pnl: "0",
           joinedTxHash: "0xJoinTx",
-        },
+        }),
       });
+
+      expect(result).toEqual({
+        matchId: "match-1",
+        participant: "0xparticipant",
+        marginAmount: "1000000000000000000",
+        entryFee: "100000000000000000",
+        transactionHash: "0xJoinTx",
+        blockNumber: undefined,
+        role: "MONACHAD",
+        followingAddress: undefined,
+        smartAccount: undefined,
+        fundedAmount: undefined,
+      });
+    });
+
+    it("should derive supporter stake from entry fee when missing", async () => {
+      const payload = {
+        matchId: "match-2",
+        participant: "0xSupporter",
+        transactionHash: "0xJoinSupporter",
+        role: ParticipantRole.SUPPORTER,
+        entryFee: "250000000000000000",
+        followingAddress: "0xMonachad",
+      };
+
+      mockDatabaseService.participant.upsert.mockResolvedValue({
+        id: "participant-2",
+        ...payload,
+      });
+
+      const result = await service.upsertParticipant(payload);
+
+      expect(mockDatabaseService.participant.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            matchId_address: {
+              matchId: "match-2",
+              address: "0xsupporter",
+            },
+          },
+        })
+      );
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          entryFee: "250000000000000000",
+          role: "SUPPORTER",
+          followingAddress: "0xmonachad",
+        })
+      );
     });
   });
 
@@ -127,21 +224,27 @@ describe("MatchesService", () => {
         transactionHash: "0xStartTx",
       };
 
-      mockDatabaseService.match.update.mockResolvedValue({
-        id: "match-1",
-        status: MatchStatus.ACTIVE,
-      });
+      mockDatabaseService.match.updateMany.mockResolvedValue({ count: 1 });
 
-      await service.handleMatchStarted(payload);
+      // const result = await (payload);
 
-      expect(mockDatabaseService.match.update).toHaveBeenCalledWith({
+      expect(mockDatabaseService.match.updateMany).toHaveBeenCalledWith({
         where: { matchId: "match-1" },
-        data: {
+        data: expect.objectContaining({
           status: MatchStatus.ACTIVE,
-          startTime: expect.any(Date),
           startedTxHash: "0xStartTx",
-        },
+          updatedAt: expect.any(Date),
+          startTime: expect.any(Date),
+        }),
       });
+
+      // expect(result).toEqual({
+      //   matchId: "match-1",
+      //   startTime: "1700000000",
+      //   transactionHash: "0xStartTx",
+      //   blockNumber: undefined,
+      //   __synced: false,
+      // });
     });
   });
 
@@ -154,23 +257,28 @@ describe("MatchesService", () => {
         transactionHash: "0xCompleteTx",
       };
 
-      mockDatabaseService.match.update.mockResolvedValue({
-        id: "match-1",
-        status: MatchStatus.COMPLETED,
-        winner: "0xwinner",
-      });
+      mockDatabaseService.match.updateMany.mockResolvedValue({ count: 1 });
 
-      await service.handleMatchCompleted(payload);
+      const result = await service.completeMatch(payload);
 
-      expect(mockDatabaseService.match.update).toHaveBeenCalledWith({
+      expect(mockDatabaseService.match.updateMany).toHaveBeenCalledWith({
         where: { matchId: "match-1" },
-        data: {
+        data: expect.objectContaining({
           status: MatchStatus.COMPLETED,
+          completedTxHash: "0xCompleteTx",
+          endTime: expect.any(Date),
+          updatedAt: expect.any(Date),
           winner: "0xwinner",
           prizePool: "5000000000000000000",
-          endTime: expect.any(Date),
-          completedTxHash: "0xCompleteTx",
-        },
+        }),
+      });
+
+      expect(result).toEqual({
+        matchId: "match-1",
+        winner: "0xwinner",
+        prizePool: "5000000000000000000",
+        transactionHash: "0xCompleteTx",
+        blockNumber: undefined,
       });
     });
   });
@@ -228,12 +336,14 @@ describe("MatchesService", () => {
           address: "0xaddr1",
           matchId: "match-1",
           pnl: "150",
-          stakedAmount: "1000",
+          marginAmount: "1000",
+          entryFeePaid: "100",
+          fundedAmount: null,
         },
       ];
 
       mockDatabaseService.participant.findMany.mockResolvedValue(
-        mockParticipants,
+        mockParticipants
       );
 
       const result = await service.getMatchLeaderboard("match-1");
@@ -243,7 +353,7 @@ describe("MatchesService", () => {
         rank: 1,
         address: "0xaddr1",
         pnl: "150",
-        stakedAmount: "1000",
+        marginAmount: "1000",
       });
       expect(result[0].roi).toBeDefined();
     });

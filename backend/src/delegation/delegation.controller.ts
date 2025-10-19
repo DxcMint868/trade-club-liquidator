@@ -12,8 +12,10 @@ export class DelegationController {
 
   @Get(":delegationHash/valid")
   async isValidDelegation(@Param("delegationHash") delegationHash: string) {
+    const delegation =
+      await this.delegationService.getDelegation(delegationHash);
     const isValid =
-      await this.delegationService.isValidDelegation(delegationHash);
+      await this.delegationService.isDelegationValidAndNotExpired(delegation);
     return { delegationHash, isValid };
   }
 
@@ -30,7 +32,7 @@ export class DelegationController {
   @Get("monachad/:address")
   async getActiveDelegationsForMonachad(@Param("address") address: string) {
     return await this.delegationService.getActiveDelegationsForMonachad(
-      address,
+      address
     );
   }
 

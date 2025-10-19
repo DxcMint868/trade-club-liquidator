@@ -15,6 +15,9 @@ dotenv.config();
 
 const prisma = new PrismaClient();
 
+const BASIS_POINTS = 10000n;
+const ENTRY_FEE_BPS = 1000n;
+
 // Contract ABI - just the functions we need for seeding
 const MATCH_MANAGER_ABI = [
   {
@@ -382,6 +385,12 @@ async function main() {
       });
 
       // Add creator as participant (Monachad)
+      const marginBigInt =
+        typeof entryMargin === "bigint"
+          ? entryMargin
+          : BigInt(entryMargin.toString());
+      const entryFeePaid = (marginBigInt * ENTRY_FEE_BPS) / BASIS_POINTS;
+
       await prisma.participant.upsert({
         where: {
           matchId_address: {
@@ -391,18 +400,20 @@ async function main() {
         },
         update: {
           role: "MONACHAD",
-          stakedAmount: entryMargin.toString(),
+          marginAmount: entryMargin.toString(),
+          entryFeePaid: entryFeePaid.toString(),
           joinedTxHash: hash,
-        },
+        } as any,
         create: {
           matchId: matchIdDecimal.toString(),
           address: creator.toLowerCase(),
           role: "MONACHAD",
           followingAddress: null,
-          stakedAmount: entryMargin.toString(),
+          marginAmount: entryMargin.toString(),
+          entryFeePaid: entryFeePaid.toString(),
           pnl: "0",
           joinedTxHash: hash,
-        },
+        } as any,
       });
 
       console.log(`  💾 Saved to database: Match ${matchIdDecimal}`);

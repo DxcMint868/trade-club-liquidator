@@ -10,8 +10,8 @@ interface TradeClub_IMatchManager {
     }
 
     enum ParticipantRole {
-        MONACHAD,   // Competing trader
-        SUPPORTER   // Copy trader following a Monachad
+        MONACHAD, // Competing trader
+        SUPPORTER // Copy trader following a Monachad
     }
 
     struct Match {
@@ -21,25 +21,39 @@ interface TradeClub_IMatchManager {
         uint256 duration;
         uint256 startTime;
         uint256 endTime;
-        uint256 maxMonachads;      // Max competing traders
+        uint256 maxMonachads; // Max competing traders
         uint256 maxSupportersPerMonachad; // Max supporters per trader
         uint256 prizePool;
         MatchStatus status;
-        address[] monachads;       // List of competing traders
-        address[] allowedDexes;    // DEXs to monitor for this match
+        address[] monachads; // List of competing traders
+        address[] allowedDexes; // DEXs to monitor for this match
         address winner;
     }
 
     struct Participant {
         address trader;
-        address smartAccount;      // Smart account for trading (supporters only)
+        address smartAccount; // Smart account for trading (supporters only)
         ParticipantRole role;
         address followingMonachad; // Only set if role == SUPPORTER
-        uint256 stakedAmount;      // Entry fee for supporters, full stake for Monachads
-        uint256 fundedAmount;      // Amount funded to smart account (supporters only)
+        uint256 marginAmount; // Trading margin supplied by Monachads (0 for supporters)
+        uint256 entryFeePaid; // Entry fee contribution to prize pool
+        uint256 fundedAmount; // Amount funded to smart account (supporters only)
         int256 pnl;
         uint256 joinedAt;
     }
+
+    event DEXFunctionAllowanceUpdated(
+        address indexed dexAddress,
+        bytes4 indexed functionSelector,
+        bool isAllowed,
+        string description
+    );
+
+    event GaveChadAMatchVault(
+        uint256 indexed matchId,
+        address indexed monachad,
+        address vaultAddress
+    );
 
     event MatchCreated(
         uint256 indexed matchId,
@@ -54,8 +68,11 @@ interface TradeClub_IMatchManager {
     event MonachadJoined(
         uint256 indexed matchId,
         address indexed monachad,
-        uint256 stakedAmount
+        uint256 marginAmount,
+        uint256 entryFee
     );
+
+    event MonachadWithdrawMargin(uint256 indexed matchId, address monachad, uint256 amount);
 
     event SupporterJoined(
         uint256 indexed matchId,
@@ -68,16 +85,25 @@ interface TradeClub_IMatchManager {
 
     event MatchStarted(uint256 indexed matchId, uint256 startTime);
 
-    event MatchCompleted(
-        uint256 indexed matchId,
-        address indexed winner,
-        uint256 prizePool
-    );
+    event MatchCompleted(uint256 indexed matchId, address indexed winner, uint256 prizePool);
 
-    event PnLUpdated(
+    event PnLUpdated(uint256 indexed matchId, address indexed participant, int256 pnl);
+
+    enum BalanceChangeType {
+        VAULT_BALANCE_CHANGE_CREATED,
+        VAULT_BALANCE_CHANGE_TRADE,
+        VAULT_BALANCE_CHANGE_WITHDRAW
+    }
+
+    event MatchVaultBalanceRecorded(
         uint256 indexed matchId,
-        address indexed participant,
-        int256 pnl
+        address indexed monachad,
+        address indexed matchVault,
+        uint256 preBalance,
+        uint256 postBalance,
+        int256 delta,
+        BalanceChangeType changeType,
+        uint256 timestamp
     );
 
     function createMatch(
@@ -102,11 +128,7 @@ interface TradeClub_IMatchManager {
 
     function settleMatch(uint256 _matchId) external;
 
-    function updatePnL(
-        uint256 _matchId,
-        address _participant,
-        int256 _pnl
-    ) external;
+    function updatePnL(uint256 _matchId, address _participant, int256 _pnl) external;
 
     function getMatch(uint256 _matchId) external view returns (Match memory);
 

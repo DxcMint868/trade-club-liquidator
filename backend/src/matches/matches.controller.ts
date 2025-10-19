@@ -21,6 +21,14 @@ export class MatchesController {
     return await this.matchesService.getUserMatches(address);
   }
 
+  @Get(":matchId/participant/:address")
+  async getMatchParticipant(
+    @Param("matchId") matchId: string,
+    @Param("address") address: string
+  ) {
+    return await this.matchesService.getMatchParticipant(matchId, address);
+  }
+
   @Get(":matchId")
   async getMatch(@Param("matchId") matchId: string) {
     return await this.matchesService.getMatch(matchId);
@@ -82,6 +90,8 @@ export class MatchesController {
       monachadAddress: string;
       smartAccountAddress: string;
       signedDelegation: any;
+      entryFee?: string;
+      fundedAmount?: string;
       stakedAmount?: string;
     }
   ) {
@@ -91,6 +101,8 @@ export class MatchesController {
       body.monachadAddress,
       body.smartAccountAddress,
       body.signedDelegation,
+      body.entryFee,
+      body.fundedAmount,
       body.stakedAmount
     );
   }

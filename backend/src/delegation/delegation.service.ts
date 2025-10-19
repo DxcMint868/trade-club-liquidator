@@ -2,12 +2,13 @@ import { Injectable } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
 import { DatabaseService } from "../database/database.service";
 import { ContractService } from "../blockchain/contract.service";
+import { Delegation } from "@prisma/client";
 
 @Injectable()
 export class DelegationService {
   constructor(
     private db: DatabaseService,
-    private contractService: ContractService,
+    private contractService: ContractService
   ) {}
 
   // Event handlers
@@ -175,24 +176,21 @@ export class DelegationService {
     }));
   }
 
-  async isValidDelegation(delegationHash: string): Promise<boolean> {
-    // Get delegation from DB to find the delegator address
-    const delegation = await this.db.delegation.findUnique({
-      where: { delegationHash },
-    });
-
+  async isDelegationValidAndNotExpired(
+    delegation: Delegation
+  ): Promise<boolean> {
     if (!delegation) return false;
 
     // Check on-chain with the delegator (supporter) address
     const isValidOnChain = await this.contractService.isDelegationValid(
-      delegationHash,
-      delegation.supporter, // The supporter is the delegator
+      delegation.delegationHash,
+      delegation.supporter // The supporter is the delegator
     );
 
     if (!isValidOnChain) {
       // Update DB if not valid on-chain
       await this.db.delegation.update({
-        where: { delegationHash },
+        where: { delegationHash: delegation.delegationHash },
         data: { isActive: false },
       });
       return false;
@@ -203,7 +201,7 @@ export class DelegationService {
 
     if (isExpired && delegation.isActive) {
       await this.db.delegation.update({
-        where: { delegationHash },
+        where: { delegationHash: delegation.delegationHash },
         data: { isActive: false },
       });
       return false;
@@ -255,12 +253,12 @@ export class DelegationService {
     // Sum amounts manually using BigInt
     const totalDelegatedAmount = delegatedDelegations.reduce(
       (sum, d) => sum + BigInt(d.amount),
-      BigInt(0),
+      BigInt(0)
     );
 
     const totalReceivedAmount = receivedDelegations.reduce(
       (sum, d) => sum + BigInt(d.amount),
-      BigInt(0),
+      BigInt(0)
     );
 
     return {

@@ -21,8 +21,27 @@ async function main() {
   const MatchManager = await ethers.getContractFactory("TradeClub_MatchManager");
   const matchManager = await MatchManager.deploy();
   await matchManager.waitForDeployment();
+  const currFunDexAddress = process.env.FUNDEX_ADDRESS;
+  if (!currFunDexAddress) {
+    throw new Error("FUN Dex address not set in environment variables");
+  }
+  console.log("Current FUN Dex address:", currFunDexAddress);
+  console.log("Setting allowed DEX functions in MatchManager...");
   const matchManagerAddress = await matchManager.getAddress();
   console.log("MatchManager deployed to:", matchManagerAddress);
+  await matchManager.setAllowedDEXFunction(
+    currFunDexAddress,
+    "0x862a3394",
+    true,
+    "FUNDex.openPosition"
+  );
+  await matchManager.setAllowedDEXFunction(
+    currFunDexAddress,
+    "0x2d6ce61d",
+    true,
+    "FUNDex.closePosition"
+  );
+  console.log("Finished setting allowed DEX functions.");
   await tryVerifyContractOnExplorer(matchManagerAddress, [], 1);
 
   // // 3. Deploy FUNDex

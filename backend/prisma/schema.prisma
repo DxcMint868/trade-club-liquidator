@@ -45,7 +45,9 @@ model Participant {
   address         String
   role            ParticipantRole @default(SUPPORTER) // MONACHAD or SUPPORTER
   followingAddress String?        // If SUPPORTER: which Monachad they're following
-  stakedAmount    String
+  marginAmount    String          @default("0")
+  entryFeePaid    String          @default("0")
+  fundedAmount    String?         // Supporter smart-account funding
   pnl             String          @default("0")
   joinedTxHash    String?
   joinedAt        DateTime        @default(now())

@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "./interfaces/TradeClub_IMatchManager.sol";
+import "./TradeClub_MatchVault.sol";
 
 /**
  * @notice Manages competitive trading matches for TradeClub platform
@@ -15,12 +16,18 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
     uint256 public matchCounter;
     uint256 public platformFeePercent = 250; // 2.5% (basis points)
     uint256 public constant BASIS_POINTS = 10000;
+    uint256 public constant ENTRY_FEE_BPS = 1000; // 10%
 
     mapping(uint256 => Match) public matches;
     mapping(uint256 => mapping(address => Participant)) public participants;
-    mapping(uint256 => address[]) public matchMonachads;      // List of Monachads per match
+    mapping(uint256 => address[]) public matchMonachads; // List of Monachads per match
     mapping(uint256 => mapping(address => address[])) public monachadSupporters; // Monachad => Supporters
     mapping(address => uint256[]) public userMatches;
+
+    // DEX function registry
+    // Maps DEX addresses to their allowed function selectors (bytes4)
+    mapping(address => mapping(bytes4 => bool)) public allowedDEXFunction;
+    mapping(uint256 => mapping(address => address)) public monachadMatchVaults;
 
     // Modifiers
     modifier onlyMatchCreator(uint256 _matchId) {
@@ -61,7 +68,10 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
         require(_maxMonachads >= 2 && _maxMonachads <= 10, "Invalid max monachads");
         require(_maxSupportersPerMonachad > 0, "Must allow supporters");
         require(_allowedDexes.length > 0, "Must specify at least one DEX");
-        require(msg.value >= _entryMargin, "Insufficient entry margin");
+        uint256 entryFee = (_entryMargin * ENTRY_FEE_BPS) / BASIS_POINTS;
+        require(msg.value >= _entryMargin + entryFee, "Margin + entry fee required");
+        uint256 marginAmount = msg.value - entryFee;
+        require(marginAmount >= _entryMargin, "Insufficient entry margin provided");
 
         uint256 matchId = ++matchCounter;
 
@@ -73,22 +83,33 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
         newMatch.maxMonachads = _maxMonachads;
         newMatch.maxSupportersPerMonachad = _maxSupportersPerMonachad;
         newMatch.status = MatchStatus.CREATED;
-        newMatch.prizePool = msg.value;
+        newMatch.prizePool = entryFee;
         newMatch.allowedDexes = _allowedDexes;
 
         // Add creator as first Monachad
         Participant storage creator = participants[matchId][msg.sender];
         creator.trader = msg.sender;
         creator.role = ParticipantRole.MONACHAD;
-        creator.stakedAmount = msg.value;
+        creator.marginAmount = marginAmount;
+        creator.entryFeePaid = entryFee;
         creator.joinedAt = block.timestamp;
+
+        _giveChadAMatchVault(matchId, msg.sender, marginAmount);
 
         matchMonachads[matchId].push(msg.sender);
         newMatch.monachads.push(msg.sender);
         userMatches[msg.sender].push(matchId);
 
-        emit MatchCreated(matchId, msg.sender, _entryMargin, _duration, _maxMonachads, _maxSupportersPerMonachad, _allowedDexes);
-        emit MonachadJoined(matchId, msg.sender, msg.value);
+        emit MatchCreated(
+            matchId,
+            msg.sender,
+            _entryMargin,
+            _duration,
+            _maxMonachads,
+            _maxSupportersPerMonachad,
+            _allowedDexes
+        );
+        emit MonachadJoined(matchId, msg.sender, marginAmount, entryFee);
 
         return matchId;
     }
@@ -103,7 +124,10 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
         Match storage matchData = matches[_matchId];
 
         require(matchData.status == MatchStatus.CREATED, "Match already started or completed");
-        require(msg.value >= matchData.entryMargin, "Insufficient entry margin");
+        uint256 entryFee = (matchData.entryMargin * ENTRY_FEE_BPS) / BASIS_POINTS;
+        require(msg.value >= matchData.entryMargin + entryFee, "Margin + entry fee required");
+        uint256 marginAmount = msg.value - entryFee;
+        require(marginAmount >= matchData.entryMargin, "Insufficient entry margin provided");
         require(matchMonachads[_matchId].length < matchData.maxMonachads, "Match is full");
         require(
             participants[_matchId][msg.sender].trader == address(0),
@@ -114,16 +138,19 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
         Participant storage participant = participants[_matchId][msg.sender];
         participant.trader = msg.sender;
         participant.role = ParticipantRole.MONACHAD;
-        participant.stakedAmount = msg.value;
+        participant.marginAmount = marginAmount;
+        participant.entryFeePaid = entryFee;
         participant.joinedAt = block.timestamp;
 
         matchMonachads[_matchId].push(msg.sender);
         matchData.monachads.push(msg.sender);
         userMatches[msg.sender].push(_matchId);
 
-        matchData.prizePool += msg.value;
+        matchData.prizePool += entryFee;
 
-        emit MonachadJoined(_matchId, msg.sender, msg.value);
+        emit MonachadJoined(_matchId, msg.sender, marginAmount, entryFee);
+
+        _giveChadAMatchVault(_matchId, msg.sender, marginAmount);
 
         // Auto-start if match is full
         if (matchMonachads[_matchId].length == matchData.maxMonachads) {
@@ -145,12 +172,14 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
     ) external payable nonReentrant whenNotPaused matchExists(_matchId) {
         Match storage matchData = matches[_matchId];
 
-        require(matchData.status == MatchStatus.CREATED || matchData.status == MatchStatus.ACTIVE, 
-                "Match not available");
-        
+        require(
+            matchData.status == MatchStatus.CREATED || matchData.status == MatchStatus.ACTIVE,
+            "Match not available"
+        );
+
         // Calculate entry fee (10% of Monachad entry margin)
-        uint256 entryFee = (matchData.entryMargin * 1000) / BASIS_POINTS; // 10%
-        
+        uint256 entryFee = (matchData.entryMargin * ENTRY_FEE_BPS) / BASIS_POINTS; // 10%
+
         require(msg.value > entryFee, "Must send entry fee + funding amount");
         require(
             participants[_matchId][msg.sender].trader == address(0),
@@ -164,7 +193,7 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
             monachadSupporters[_matchId][_monachad].length < matchData.maxSupportersPerMonachad,
             "Monachad has max supporters"
         );
-        
+
         // Verify smart account exists
         require(_smartAccountAddress.code.length > 0, "Smart account not deployed");
 
@@ -177,7 +206,8 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
         participant.smartAccount = _smartAccountAddress;
         participant.role = ParticipantRole.SUPPORTER;
         participant.followingMonachad = _monachad;
-        participant.stakedAmount = entryFee;
+        participant.marginAmount = 0;
+        participant.entryFeePaid = entryFee;
         participant.fundedAmount = fundingAmount;
         participant.joinedAt = block.timestamp;
 
@@ -188,10 +218,17 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
         matchData.prizePool += entryFee;
 
         // Fund the smart account
-        (bool success, ) = _smartAccountAddress.call{value: fundingAmount}("");
+        (bool success, ) = _smartAccountAddress.call{ value: fundingAmount }("");
         require(success, "Smart account funding failed");
 
-        emit SupporterJoined(_matchId, msg.sender, _monachad, _smartAccountAddress, entryFee, fundingAmount);
+        emit SupporterJoined(
+            _matchId,
+            msg.sender,
+            _monachad,
+            _smartAccountAddress,
+            entryFee,
+            fundingAmount
+        );
     }
 
     /**
@@ -200,7 +237,7 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
      * @return entryFee The required entry fee for supporters
      */
     function getEntryFee(uint256 _matchId) external view matchExists(_matchId) returns (uint256) {
-        return (matches[_matchId].entryMargin * 1000) / BASIS_POINTS; // 10%
+        return (matches[_matchId].entryMargin * ENTRY_FEE_BPS) / BASIS_POINTS; // 10%
     }
 
     /**
@@ -215,6 +252,50 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
         require(matchMonachads[_matchId].length >= 2, "Need at least 2 Monachads");
 
         _startMatch(_matchId);
+    }
+
+    /**
+     * @notice Withdraw margin from match (Monachads only)
+     * @param _matchId The ID of the match
+     * @param _amount The amount to withdraw (0 to withdraw all)
+     */
+    function monachadWithdrawMargin(
+        uint256 _matchId,
+        uint256 _amount
+    ) external nonReentrant matchExists(_matchId) {
+        Participant storage participant = participants[_matchId][msg.sender];
+        require(participant.trader != address(0), "Not a participant in this match");
+        require(participant.role == ParticipantRole.MONACHAD, "Not a Monachad");
+        require(
+            _amount <= participant.marginAmount,
+            "monachadWithdrawMargin: Insufficient margin to withdraw"
+        );
+
+        if (_amount == 0) {
+            _amount = participant.marginAmount;
+        }
+
+        participant.marginAmount -= _amount;
+
+        emit MonachadWithdrawMargin(_matchId, msg.sender, _amount);
+        // Transfer funds back to participant
+        TradeClub_IMatchVault vault = TradeClub_IMatchVault(
+            monachadMatchVaults[_matchId][msg.sender]
+        );
+        uint256 preBalance = vault.getBalance();
+        require(_amount <= preBalance, "monachadWithdrawMargin: Insufficient vault balance");
+
+        vault.withdrawMargin(_amount);
+        uint256 postBalance = vault.getBalance();
+
+        _recordMatchVaultBalance(
+            _matchId,
+            msg.sender,
+            address(vault),
+            preBalance,
+            postBalance,
+            BalanceChangeType.VAULT_BALANCE_CHANGE_WITHDRAW
+        );
     }
 
     /**
@@ -290,7 +371,7 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
     function _determineWinner(uint256 _matchId) internal view returns (address) {
         address[] memory monachads = matchMonachads[_matchId];
         require(monachads.length > 0, "No Monachads in match");
-        
+
         address winner = monachads[0];
         int256 highestPnL = participants[_matchId][winner].pnl;
 
@@ -372,6 +453,84 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
     }
 
     /**
+     * @notice Set allowed DEX function
+     * @param _dexAddress The address of the DEX
+     * @param _functionSelector The function selector (bytes4)
+     * @param _isAllowed Whether the function is allowed
+     * @param _description Description of the function
+     */
+    function setAllowedDEXFunction(
+        address _dexAddress,
+        bytes4 _functionSelector,
+        bool _isAllowed,
+        string calldata _description
+    ) external onlyOwner {
+        require(
+            allowedDEXFunction[_dexAddress][_functionSelector] != _isAllowed,
+            "setAllowedDEXFunction no-op"
+        );
+
+        allowedDEXFunction[_dexAddress][_functionSelector] = _isAllowed;
+
+        emit DEXFunctionAllowanceUpdated(_dexAddress, _functionSelector, _isAllowed, _description);
+    }
+
+    /**
+     * @dev Development only; Remove in prod
+     */
+    function recoverCoins() external onlyOwner {
+        uint256 balance = address(this).balance;
+        (bool success, ) = payable(owner()).call{ value: balance }("");
+        require(success, "Coin recovery failed");
+    }
+
+    /**
+     * @notice Execute a trade on behalf of a Monachad
+     * @param _matchId The match ID
+     * @param _target The target DEX address
+     * @param _calldata The calldata for the trade
+     * @param nativeAmount The amount of native tokens to use for the trade (optional - leave 0 if none)
+     */
+    function monachadExecuteTrade(
+        uint256 _matchId,
+        address _target,
+        bytes calldata _calldata,
+        uint256 nativeAmount
+    ) external matchExists(_matchId) onlyActiveMatch(_matchId) {
+        require(_target != address(0), "executeTrade: Invalid target address");
+        require(_calldata.length >= 4, "executeTrade: Calldata too short");
+        require(
+            participants[_matchId][msg.sender].role == ParticipantRole.MONACHAD,
+            "executeTrade: Caller is not a Monachad"
+        );
+
+        // Extract function selector
+        bytes4 selector = bytes4(_calldata[:4]);
+        require(allowedDEXFunction[_target][selector], "executeTrade: DEX function not allowed");
+
+        address vaultAddress = monachadMatchVaults[_matchId][msg.sender];
+        if (vaultAddress == address(0)) {
+            revert("executeTrade: No MatchVault for Monachad");
+        }
+
+        TradeClub_IMatchVault vault = TradeClub_IMatchVault(vaultAddress);
+        uint256 preBalance = vault.getBalance();
+        require(nativeAmount <= preBalance, "executeTrade: Insufficient vault balance");
+
+        vault.executeTrade(_target, _calldata, nativeAmount);
+
+        uint256 postBalance = vault.getBalance();
+        _recordMatchVaultBalance(
+            _matchId,
+            msg.sender,
+            vaultAddress,
+            preBalance,
+            postBalance,
+            BalanceChangeType.VAULT_BALANCE_CHANGE_TRADE
+        );
+    }
+
+    /**
      * @notice Withdraw accumulated platform fees
      */
     function withdrawFees() external onlyOwner {
@@ -392,6 +551,65 @@ contract TradeClub_MatchManager is TradeClub_IMatchManager, ReentrancyGuard, Own
      */
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    function _giveChadAMatchVault(
+        uint256 _matchId,
+        address _monachad,
+        uint256 _custodyAmount
+    ) internal returns (address vaultAddress) {
+        require(
+            monachadMatchVaults[_matchId][_monachad] == address(0),
+            "_giveChadAMatchVault: Monachad already has MatchVault"
+        );
+        require(
+            _custodyAmount <= msg.value,
+            "_giveChadAMatchVault: Insufficient amount for custody"
+        );
+
+        vaultAddress = address(new TradeClub_MatchVault());
+        monachadMatchVaults[_matchId][_monachad] = vaultAddress;
+
+        // Transfer money to the vault
+        (bool success, ) = vaultAddress.call{ value: _custodyAmount }("");
+        require(success, "_giveChadAMatchVault: Vault deposit failed");
+
+        uint256 postBalance = TradeClub_IMatchVault(vaultAddress).getBalance();
+        _recordMatchVaultBalance(
+            _matchId,
+            _monachad,
+            vaultAddress,
+            0,
+            postBalance,
+            BalanceChangeType.VAULT_BALANCE_CHANGE_CREATED
+        );
+
+        emit GaveChadAMatchVault(_matchId, address(_monachad), vaultAddress);
+    }
+
+    function version() external pure returns (string memory) {
+        return "1.0.0";
+    }
+
+    function _recordMatchVaultBalance(
+        uint256 _matchId,
+        address _monachad,
+        address _vault,
+        uint256 _preBalance,
+        uint256 _postBalance,
+        BalanceChangeType _changeType
+    ) internal {
+        int256 delta = int256(_postBalance) - int256(_preBalance);
+        emit MatchVaultBalanceRecorded(
+            _matchId,
+            _monachad,
+            _vault,
+            _preBalance,
+            _postBalance,
+            delta,
+            _changeType,
+            block.timestamp
+        );
     }
 
     receive() external payable {}

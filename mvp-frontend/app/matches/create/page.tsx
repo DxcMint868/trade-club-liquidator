@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAccount, useWalletClient, usePublicClient } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
@@ -15,15 +15,21 @@ export default function CreateMatchPage() {
   const publicClient = usePublicClient();
 
   const [entryMargin, setEntryMargin] = useState("0.01");
+  const [entryFee, setEntryFee] = useState(0);
   const [duration, setDuration] = useState("2"); // hours
   const [maxMonachads, setMaxMonachads] = useState("5");
   const [maxSupporters, setMaxSupporters] = useState("20");
   const [selectedDexes, setSelectedDexes] = useState<string[]>([]);
   const [isCreating, setIsCreating] = useState(false);
 
+  useEffect(() => {
+    if (!entryMargin) return;
+    setEntryFee(parseFloat(entryMargin) * 0.1);
+  }, [entryMargin]);
+
   const activeDexes = getActiveDexes();
 
-  const toggleDex = (dexAddress: string) => {
+  const toggleDex = (dexAddress: string): void => {
     setSelectedDexes((prev) =>
       prev.includes(dexAddress)
         ? prev.filter((addr) => addr !== dexAddress)
@@ -53,6 +59,7 @@ export default function CreateMatchPage() {
       }
 
       const entryMarginWei = parseEther(entryMargin);
+      const entryFeeWei = parseEther(entryFee.toString());
       const durationSeconds = BigInt(parseInt(duration) * 3600);
       const maxMonachadsNum = BigInt(maxMonachads);
       const maxSupportersNum = BigInt(maxSupporters);
@@ -69,9 +76,17 @@ export default function CreateMatchPage() {
         abi: [
           {
             inputs: [
-              { internalType: "uint256", name: "_entryMargin", type: "uint256" },
+              {
+                internalType: "uint256",
+                name: "_entryMargin",
+                type: "uint256",
+              },
               { internalType: "uint256", name: "_duration", type: "uint256" },
-              { internalType: "uint256", name: "_maxMonachads", type: "uint256" },
+              {
+                internalType: "uint256",
+                name: "_maxMonachads",
+                type: "uint256",
+              },
               {
                 internalType: "uint256",
                 name: "_maxSupportersPerMonachad",
@@ -97,7 +112,7 @@ export default function CreateMatchPage() {
           maxSupportersNum,
           selectedDexes as Hex[],
         ],
-        value: entryMarginWei,
+        value: entryMarginWei + entryFeeWei,
       });
 
       console.log("Transaction sent:", hash);
@@ -136,7 +151,8 @@ export default function CreateMatchPage() {
         <div className="card">
           <h1 className="text-4xl font-bold mb-2">Create New Match</h1>
           <p className="text-gray-400 mb-8">
-            Set up a competitive trading match for Monachads and their supporters
+            Set up a competitive trading match for Monachads and their
+            supporters
           </p>
 
           <div className="space-y-6">
@@ -258,7 +274,7 @@ export default function CreateMatchPage() {
                   <span className="font-semibold">{entryMargin} ETH</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400">Supporter Entry Fee:</span>
+                  <span className="text-gray-400">Entry Fee:</span>
                   <span className="font-semibold">
                     {(parseFloat(entryMargin) * 0.1).toFixed(4)} ETH (10%)
                   </span>
@@ -283,11 +299,11 @@ export default function CreateMatchPage() {
                 selectedDexes.length === 0 ||
                 parseFloat(entryMargin) <= 0
               }
-              className="btn btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn bg-purple-500 hover:bg-purple-600 w-full disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isCreating
                 ? "Creating Match..."
-                : `Create Match & Stake ${entryMargin} ETH`}
+                : `Create Match (Pay ${parseFloat(entryMargin) + entryFee} ETH)`}
             </button>
           </div>
         </div>

@@ -1,8 +1,10 @@
-import { Injectable } from "@nestjs/common";
-import { OnEvent } from "@nestjs/event-emitter";
+import { Injectable, Logger } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { ContractService } from "../blockchain/contract.service";
-import { MatchStatus } from "@prisma/client";
+import { MatchStatus, ParticipantRole } from "@prisma/client";
+
+const BASIS_POINTS = 10000n;
+const ENTRY_FEE_BPS = 1000n;
 
 export interface CreateMatchDto {
   creator: string;
@@ -14,7 +16,8 @@ export interface CreateMatchDto {
 export interface JoinMatchDto {
   matchId: string;
   participant: string;
-  stakedAmount: string;
+  marginAmount: string;
+  entryFeePaid: string;
 }
 
 export interface UpdatePnLDto {
@@ -25,14 +28,14 @@ export interface UpdatePnLDto {
 
 @Injectable()
 export class MatchesService {
+  private readonly logger = new Logger(MatchesService.name);
+
   constructor(
     private db: DatabaseService,
     private contractService: ContractService
   ) {}
 
-  // Event handlers for blockchin events
-  @OnEvent("match.created")
-  async handleMatchCreated(payload: any) {
+  async createMatch(payload: any) {
     const {
       matchId,
       creator,
@@ -45,97 +48,352 @@ export class MatchesService {
       transactionHash,
     } = payload;
 
-    await this.db.match.create({
-      data: {
-        matchId,
-        creator: creator.toLowerCase(),
+    const normalizedCreator = String(creator || "").toLowerCase();
+
+    const parsedDuration = this.parseInteger(duration);
+    const parsedMaxParticipants = this.parseInteger(maxParticipants);
+    const parsedMaxSupporters =
+      maxSupportersPerMonachad !== undefined &&
+      maxSupportersPerMonachad !== null
+        ? this.parseInteger(maxSupportersPerMonachad)
+        : null;
+    const dexes = Array.isArray(allowedDexes)
+      ? allowedDexes.map((dex: string) => dex.toLowerCase())
+      : [];
+    const normalizedBlockNumber = this.parseInteger(blockNumber);
+
+    await this.db.match.upsert({
+      where: { matchId },
+      update: {
+        creator: normalizedCreator,
         entryMargin,
-        duration: parseInt(duration),
-        maxParticipants: parseInt(maxParticipants),
-        maxSupporters: parseInt(maxSupportersPerMonachad),
+        duration: parsedDuration,
+        maxParticipants: parsedMaxParticipants,
+        maxSupporters:
+          parsedMaxSupporters !== null && !Number.isNaN(parsedMaxSupporters)
+            ? parsedMaxSupporters
+            : undefined,
+        allowedDexes: dexes,
+        blockNumber: normalizedBlockNumber,
+        transactionHash,
+        createdTxHash: transactionHash,
+        updatedAt: new Date(),
+      },
+      create: {
+        matchId,
+        creator: normalizedCreator,
+        entryMargin,
+        duration: parsedDuration,
+        maxParticipants: parsedMaxParticipants,
+        maxSupporters:
+          parsedMaxSupporters !== null && !Number.isNaN(parsedMaxSupporters)
+            ? parsedMaxSupporters
+            : null,
         prizePool: "0",
         status: MatchStatus.CREATED,
-        allowedDexes: allowedDexes || [],
+        allowedDexes: dexes,
         createdTxHash: transactionHash,
-        blockNumber,
+        blockNumber: normalizedBlockNumber,
         transactionHash,
       },
     });
 
-    console.log(`✅ Match ${matchId} saved to database`);
+    this.logger.log(`Match ${matchId} saved/updated (status: CREATED)`);
+
+    return {
+      matchId,
+      creator: normalizedCreator,
+      entryMargin,
+      duration: parsedDuration,
+      maxParticipants: parsedMaxParticipants,
+      maxSupportersPerMonachad:
+        parsedMaxSupporters !== null && !Number.isNaN(parsedMaxSupporters)
+          ? parsedMaxSupporters
+          : undefined,
+      allowedDexes: dexes,
+      blockNumber: normalizedBlockNumber,
+      transactionHash,
+    };
   }
 
-  @OnEvent("match.participant-joined")
-  async handleParticipantJoined(payload: any) {
-    const { matchId, participant, stakedAmount, transactionHash } = payload;
+  async upsertParticipant(payload: any) {
+    const {
+      matchId,
+      participant,
+      stakedAmount,
+      marginAmount,
+      entryFee,
+      transactionHash,
+      role,
+      followingAddress,
+      blockNumber,
+      smartAccount,
+      fundedAmount,
+      entryMargin,
+    } = payload;
 
-    // Create participant record
-    await this.db.participant.create({
-      data: {
-        matchId,
-        address: participant.toLowerCase(),
-        stakedAmount,
-        pnl: "0",
-        joinedTxHash: transactionHash,
-      },
-    });
+    this.logger.log(`Upserting participant ${participant} for match ${matchId}`);
 
-    console.log(`✅ Participant ${participant} joined match ${matchId}`);
+    if (!participant) {
+      this.logger.warn(
+        `participant.joined event missing participant address (match ${matchId})`
+      );
+      return null;
+    }
+
+    const normalizedParticipant = participant.toLowerCase();
+    const participantRole =
+      role === ParticipantRole.MONACHAD
+        ? ParticipantRole.MONACHAD
+        : ParticipantRole.SUPPORTER;
+    const coerceToString = (value: unknown) =>
+      value === undefined || value === null ? undefined : String(value);
+
+    const normalizedMarginAmount =
+      coerceToString(marginAmount) ??
+      (participantRole === ParticipantRole.MONACHAD
+        ? (coerceToString(stakedAmount) ?? coerceToString(entryMargin) ?? "0")
+        : "0");
+
+    const normalizedEntryFee =
+      coerceToString(entryFee) ??
+      (participantRole === ParticipantRole.SUPPORTER
+        ? (coerceToString(stakedAmount) ?? "0")
+        : "0");
+
+    const normalizedFundedAmount = coerceToString(fundedAmount);
+    const followerAddress =
+      participantRole === ParticipantRole.SUPPORTER && followingAddress
+        ? String(followingAddress).toLowerCase()
+        : null;
+
+    // Perform match prize pool update and participant upsert atomically
+    try {
+      const result = await this.db.$transaction(async (tx) => {
+        // Read match inside transaction to avoid race conditions
+        const match = await tx.match.findUnique({ where: { matchId } });
+        if (!match) {
+          // Abort transaction by throwing; will be caught below
+          throw new Error(
+            `Match ${matchId} not found when updating prize pool`
+          );
+        }
+
+        this.logger.log(
+          `participant margin: ${normalizedMarginAmount ?? "0"}, entry fee: ${normalizedEntryFee}`
+        );
+
+        const entryFeeBigInt = BigInt(normalizedEntryFee ?? "0");
+        const updatedPrizePool =
+          entryFeeBigInt > 0n
+            ? String(BigInt(match.prizePool ?? "0") + entryFeeBigInt)
+            : match.prizePool;
+
+        const updatedMatch =
+          entryFeeBigInt > 0n
+            ? await tx.match.update({
+                where: { matchId },
+                data: {
+                  prizePool: updatedPrizePool,
+                  updatedAt: new Date(),
+                },
+              })
+            : match;
+
+        // Upsert participant
+        const updateData: any = {
+          role: participantRole,
+          followingAddress: followerAddress,
+          marginAmount: normalizedMarginAmount,
+          entryFeePaid: normalizedEntryFee ?? "0",
+          joinedTxHash: transactionHash,
+          updatedAt: new Date(),
+        };
+
+        if (normalizedFundedAmount !== undefined) {
+          updateData.fundedAmount = normalizedFundedAmount;
+        }
+
+        const createData: any = {
+          matchId,
+          address: normalizedParticipant,
+          role: participantRole,
+          followingAddress: followerAddress,
+          marginAmount: normalizedMarginAmount ?? "0",
+          entryFeePaid: normalizedEntryFee ?? "0",
+          pnl: "0",
+          joinedTxHash: transactionHash,
+        };
+
+        if (normalizedFundedAmount !== undefined) {
+          createData.fundedAmount = normalizedFundedAmount;
+        }
+
+        const participantRecord = await tx.participant.upsert({
+          where: {
+            matchId_address: {
+              matchId,
+              address: normalizedParticipant,
+            },
+          },
+          update: updateData,
+          create: createData,
+        });
+
+        return { updatedMatch, participantRecord };
+      });
+
+      this.logger.log(
+        `${participantRole} ${normalizedParticipant} recorded for match ${matchId}`
+      );
+    } catch (err) {
+      this.logger.error(
+        err.message ?? `Match ${matchId} not found when updating prize pool`
+      );
+      return;
+    }
+
+    const normalizedBlockNumber =
+      blockNumber !== undefined && blockNumber !== null
+        ? this.parseInteger(blockNumber)
+        : undefined;
+
+    return {
+      matchId,
+      participant: normalizedParticipant,
+      marginAmount: normalizedMarginAmount ?? "0",
+      entryFee: normalizedEntryFee ?? "0",
+      transactionHash,
+      blockNumber: normalizedBlockNumber,
+      role:
+        participantRole === ParticipantRole.MONACHAD ? "MONACHAD" : "SUPPORTER",
+      followingAddress: followerAddress ?? undefined,
+      smartAccount: smartAccount
+        ? String(smartAccount).toLowerCase()
+        : undefined,
+      fundedAmount: normalizedFundedAmount,
+    };
   }
 
-  @OnEvent("match.started")
-  async handleMatchStarted(payload: any) {
-    const { matchId, startTime, transactionHash } = payload;
+  async completeMatch(payload: any) {
+    const { matchId, winner, prizePool, transactionHash, blockNumber } =
+      payload;
 
-    await this.db.match.update({
+    const updateData: any = {
+      status: MatchStatus.COMPLETED,
+      completedTxHash: transactionHash,
+      endTime: new Date(),
+      updatedAt: new Date(),
+    };
+
+    if (winner) {
+      updateData.winner = String(winner).toLowerCase();
+    }
+
+    if (prizePool !== undefined && prizePool !== null) {
+      updateData.prizePool = String(prizePool);
+    }
+
+    const normalizedBlockNumber =
+      blockNumber !== undefined && blockNumber !== null
+        ? this.parseInteger(blockNumber)
+        : undefined;
+
+    if (normalizedBlockNumber !== undefined) {
+      updateData.blockNumber = normalizedBlockNumber;
+    }
+
+    const result = await this.db.match.updateMany({
       where: { matchId },
-      data: {
-        status: MatchStatus.ACTIVE,
-        startTime: new Date(parseInt(startTime) * 1000),
-        startedTxHash: transactionHash,
-      },
+      data: updateData,
     });
 
-    console.log(`✅ Match ${matchId} started`);
+    if (result.count === 0) {
+      this.logger.warn(
+        `Received match.completed for ${matchId} but no match record was updated`
+      );
+      return null;
+    }
+
+    this.logger.log(`Match ${matchId} completed. Winner: ${winner ?? "n/a"}`);
+
+    return {
+      matchId,
+      winner: updateData.winner ?? undefined,
+      prizePool: updateData.prizePool ?? undefined,
+      transactionHash,
+      blockNumber: normalizedBlockNumber,
+    };
   }
 
-  @OnEvent("match.completed")
-  async handleMatchCompleted(payload: any) {
-    const { matchId, winner, prizePool, transactionHash } = payload;
+  async updatePnL(payload: any) {
+    const { matchId, participant, pnl, transactionHash, blockNumber } = payload;
 
-    await this.db.match.update({
-      where: { matchId },
-      data: {
-        status: MatchStatus.COMPLETED,
-        winner: winner.toLowerCase(),
-        prizePool,
-        endTime: new Date(),
-        completedTxHash: transactionHash,
-      },
-    });
+    if (!participant) {
+      this.logger.warn(`PnL update missing participant for match ${matchId}`);
+      return null;
+    }
 
-    console.log(`✅ Match ${matchId} completed. Winner: ${winner}`);
-  }
-
-  @OnEvent("match.pnl-updated")
-  async handlePnLUpdated(payload: any) {
-    const { matchId, participant, pnl } = payload;
+    const normalizedParticipant = participant.toLowerCase();
+    const normalizedPnL = pnl !== undefined && pnl !== null ? String(pnl) : "0";
 
     await this.db.participant.updateMany({
       where: {
         matchId,
-        address: participant.toLowerCase(),
+        address: normalizedParticipant,
       },
       data: {
-        pnl,
+        pnl: normalizedPnL,
         updatedAt: new Date(),
       },
     });
 
-    console.log(`PnL updated for ${participant} in match ${matchId}: ${pnl}`);
+    this.logger.log(
+      `PnL updated for ${normalizedParticipant} in match ${matchId}: ${normalizedPnL}`
+    );
+
+    const normalizedBlockNumber =
+      blockNumber !== undefined && blockNumber !== null
+        ? this.parseInteger(blockNumber)
+        : undefined;
+
+    return {
+      matchId,
+      participant: normalizedParticipant,
+      pnl: normalizedPnL,
+      transactionHash,
+      blockNumber: normalizedBlockNumber,
+    };
   }
 
-  // API methods
+  async getActiveMatchesForMonachad(monachadAddress: string) {
+    const normalizedAddress = monachadAddress.toLowerCase();
+
+    return this.db.match.findMany({
+      where: {
+        status: MatchStatus.ACTIVE,
+        participants: {
+          some: {
+            address: normalizedAddress,
+            role: ParticipantRole.MONACHAD,
+          },
+        },
+      },
+      include: {
+        delegations: {
+          where: {
+            monachad: normalizedAddress,
+            isActive: true,
+            expiresAt: {
+              gt: new Date(),
+            },
+          },
+        },
+      },
+    });
+  }
+
+  // Get methods
   async getAllMatches(status?: MatchStatus) {
     const where = status ? { status } : {};
 
@@ -153,20 +411,56 @@ export class MatchesService {
   async getMatch(matchId: string) {
     const match = await this.db.match.findUnique({
       where: { matchId },
-      include: {
-        participants: {
-          orderBy: {
-            pnl: "desc",
-          },
-        },
-      },
     });
 
     if (!match) {
       throw new Error(`Match ${matchId} not found`);
     }
 
-    return match;
+    const participantCount = await this.db.participant.count({
+      where: { matchId },
+    });
+
+    const topMonachads = await this.db.participant.findMany({
+      where: {
+        matchId,
+        role: ParticipantRole.MONACHAD,
+      },
+      orderBy: {
+        pnl: "desc",
+      },
+      take: 5,
+    });
+    const monachadCount = await this.db.participant.count({
+      where: { matchId, role: ParticipantRole.MONACHAD },
+    });
+
+    const supporterCount = await this.db.participant.count({
+      where: {
+        matchId,
+        role: ParticipantRole.SUPPORTER,
+      },
+    });
+    const topSupporters = await this.db.participant.findMany({
+      where: {
+        matchId,
+        role: ParticipantRole.SUPPORTER,
+      },
+      orderBy: {
+        pnl: "desc",
+      },
+      take: 10,
+    });
+
+    const returnData = {
+      ...match,
+      participantCount,
+      topMonachads,
+      topSupporters,
+      supporterCount,
+      monachadCount,
+    };
+    return returnData;
   }
 
   async getMatchParticipants(matchId: string) {
@@ -190,8 +484,10 @@ export class MatchesService {
       rank: index + 1,
       address: p.address,
       pnl: p.pnl,
-      stakedAmount: p.stakedAmount,
-      roi: this.calculateROI(p.pnl, p.stakedAmount),
+      marginAmount: p.marginAmount,
+      entryFeePaid: p.entryFeePaid,
+      fundedAmount: p.fundedAmount,
+      roi: this.calculateROI(p.pnl, p.marginAmount || p.fundedAmount || "0"),
     }));
   }
 
@@ -227,6 +523,27 @@ export class MatchesService {
     );
 
     return uniqueMatches;
+  }
+
+  async getMatchParticipant(matchId: string, address: string) {
+    const lowerAddress = address.toLowerCase();
+
+    const participant = await this.db.participant.findUnique({
+      where: {
+        matchId_address: {
+          matchId,
+          address: lowerAddress,
+        },
+      },
+    });
+
+    if (!participant) {
+      throw new Error(
+        `Participant ${lowerAddress} not found in match ${matchId}`
+      );
+    }
+
+    return participant;
   }
 
   async getActiveMatches() {
@@ -282,6 +599,7 @@ export class MatchesService {
     }
 
     // Store signed delegation for future use
+    const entryFeePaid = this.calculateEntryFeeFromMargin(match.entryMargin);
     const delegationData = {
       supporter: userAddress.toLowerCase(),
       monachad: signedDelegation.delegate.toLowerCase(),
@@ -294,7 +612,7 @@ export class MatchesService {
       signedDelegation: JSON.stringify(signedDelegation),
       isActive: true,
       blockNumber: 0, // Will be updated when actually executed on-chain
-      transactionHash: "0x0", // Placeholder
+      transactionHash: "0x0", // Placeholder as well
     };
 
     // Create participant and delegation in a transaction
@@ -303,14 +621,17 @@ export class MatchesService {
         data: {
           matchId,
           address: userAddress.toLowerCase(),
-          stakedAmount: match.entryMargin,
+          role: ParticipantRole.SUPPORTER,
+          followingAddress: signedDelegation.delegate.toLowerCase(),
+          marginAmount: match.entryMargin,
+          entryFeePaid,
+          fundedAmount: match.entryMargin,
           pnl: "0",
           joinedTxHash: "0x0", // Will be updated when on-chain tx happens
-        },
+        } as any,
       });
 
-      
-      console.log("Delegation Data:", delegationData);
+      this.logger.debug(`Delegation Data: ${JSON.stringify(delegationData)}`);
       const delegation = await tx.delegation.create({
         data: delegationData,
       });
@@ -318,8 +639,8 @@ export class MatchesService {
       return { participant, delegation };
     });
 
-    console.log(
-      `✅ User ${userAddress} joined match ${matchId} with delegation`
+    this.logger.log(
+      `User ${userAddress} joined match ${matchId} with delegation`
     );
 
     return {
@@ -369,14 +690,34 @@ export class MatchesService {
   }
 
   // Helper methods
-  private calculateROI(pnl: string, stakedAmount: string): string {
+  private calculateROI(pnl: string, basisAmount: string): string {
     const pnlBigInt = BigInt(pnl);
-    const stakedBigInt = BigInt(stakedAmount);
+    const basisBigInt = BigInt(basisAmount);
 
-    if (stakedBigInt === 0n) return "0";
+    if (basisBigInt === 0n) return "0";
 
-    const roi = (pnlBigInt * 10000n) / stakedBigInt; // 100% = 10000
+    const roi = (pnlBigInt * 10000n) / basisBigInt; // 100% = 10000
     return (Number(roi) / 100).toFixed(2);
+  }
+
+  private calculateEntryFeeFromMargin(
+    entryMargin: string | number | bigint
+  ): string {
+    try {
+      const marginBigInt =
+        typeof entryMargin === "bigint"
+          ? entryMargin
+          : BigInt(entryMargin.toString());
+
+      return ((marginBigInt * ENTRY_FEE_BPS) / BASIS_POINTS).toString();
+    } catch (error) {
+      this.logger.warn(
+        `Failed to calculate entry fee from margin value ${entryMargin}: ${String(
+          error
+        )}`
+      );
+      return "0";
+    }
   }
 
   // New methods for Monachad/Supporter flow
@@ -385,27 +726,34 @@ export class MatchesService {
    * Get all Monachads (competing traders) in a match
    */
   async getMatchMonachads(matchId: string) {
-    const monachads = await this.db.participant.findMany({
+    const monachads = (await this.db.participant.findMany({
       where: {
         matchId,
         role: "MONACHAD",
       },
       select: {
         address: true,
-        stakedAmount: true,
+        marginAmount: true,
+        entryFeePaid: true,
         pnl: true,
         joinedAt: true,
       },
       orderBy: {
         joinedAt: "asc",
       },
-    });
+    } as any)) as unknown as Array<{
+      address: string;
+      marginAmount: string;
+      entryFeePaid: string;
+      pnl: string;
+      joinedAt: Date;
+    }>;
 
     return {
       matchId,
       monachads: monachads.map((m) => ({
         ...m,
-        roi: this.calculateROI(m.pnl, m.stakedAmount),
+        roi: this.calculateROI(m.pnl, m.marginAmount || "0"),
       })),
     };
   }
@@ -414,7 +762,7 @@ export class MatchesService {
    * Get all supporters in a match
    */
   async getMatchSupporters(matchId: string) {
-    const supporters = await this.db.participant.findMany({
+    const supporters = (await this.db.participant.findMany({
       where: {
         matchId,
         role: "SUPPORTER",
@@ -422,14 +770,24 @@ export class MatchesService {
       select: {
         address: true,
         followingAddress: true,
-        stakedAmount: true,
+        marginAmount: true,
+        entryFeePaid: true,
+        fundedAmount: true,
         pnl: true,
         joinedAt: true,
       },
       orderBy: {
         joinedAt: "asc",
       },
-    });
+    } as any)) as unknown as Array<{
+      address: string;
+      followingAddress: string | null;
+      marginAmount: string;
+      entryFeePaid: string;
+      fundedAmount: string | null;
+      pnl: string;
+      joinedAt: Date;
+    }>;
 
     return {
       matchId,
@@ -441,7 +799,7 @@ export class MatchesService {
    * Get all supporters following a specific Monachad
    */
   async getMonachadSupporters(matchId: string, monachadAddress: string) {
-    const supporters = await this.db.participant.findMany({
+    const supporters = (await this.db.participant.findMany({
       where: {
         matchId,
         role: "SUPPORTER",
@@ -449,14 +807,23 @@ export class MatchesService {
       },
       select: {
         address: true,
-        stakedAmount: true,
+        marginAmount: true,
+        entryFeePaid: true,
+        fundedAmount: true,
         pnl: true,
         joinedAt: true,
       },
       orderBy: {
         joinedAt: "asc",
       },
-    });
+    } as any)) as unknown as Array<{
+      address: string;
+      marginAmount: string;
+      entryFeePaid: string;
+      fundedAmount: string | null;
+      pnl: string;
+      joinedAt: Date;
+    }>;
 
     return {
       matchId,
@@ -512,21 +879,37 @@ export class MatchesService {
       );
     }
 
-    // Create participant as Monachad
-    const participant = await this.db.participant.create({
-      data: {
-        matchId,
-        address: monachadAddress.toLowerCase(),
-        role: "MONACHAD",
-        followingAddress: null,
-        stakedAmount: match.entryMargin,
-        pnl: "0",
-        joinedTxHash: "0x0", // Will be updated when on-chain tx happens
-      },
+    const entryFeePaid = this.calculateEntryFeeFromMargin(match.entryMargin);
+
+    const participant = await this.db.$transaction(async (tx) => {
+      const createdParticipant = await tx.participant.create({
+        data: {
+          matchId,
+          address: monachadAddress.toLowerCase(),
+          role: "MONACHAD",
+          followingAddress: null,
+          marginAmount: match.entryMargin,
+          entryFeePaid,
+          pnl: "0",
+          joinedTxHash: "0x0", // Will be updated when on-chain tx happens
+        } as any,
+      });
+
+      await tx.match.update({
+        where: { matchId },
+        data: {
+          prizePool: String(
+            BigInt(match.prizePool ?? "0") + BigInt(entryFeePaid)
+          ),
+          updatedAt: new Date(),
+        },
+      });
+
+      return createdParticipant;
     });
 
-    console.log(
-      `✅ User ${monachadAddress} joined match ${matchId} as Monachad`
+    this.logger.log(
+      `User ${monachadAddress} joined match ${matchId} as Monachad`
     );
 
     return {
@@ -545,7 +928,9 @@ export class MatchesService {
     monachadAddress: string,
     smartAccountAddress: string,
     signedDelegation: any,
-    stakedAmount?: string
+    entryFeePaid?: string,
+    fundedAmount?: string,
+    stakedAmountLegacy?: string
   ) {
     const match = await this.db.match.findUnique({
       where: { matchId },
@@ -597,21 +982,25 @@ export class MatchesService {
     ).length;
 
     if (match.maxSupporters && currentSupporters >= match.maxSupporters) {
-      throw new Error(
-        `Monachad ${monachadAddress} already has max supporters`
-      );
+      throw new Error(`Monachad ${monachadAddress} already has max supporters`);
     }
 
-    // Use provided staked amount or default to 0
-    const amountToStake = stakedAmount || "0";
+    const normalizedEntryFee =
+      entryFeePaid ??
+      stakedAmountLegacy ??
+      this.calculateEntryFeeFromMargin(match.entryMargin);
+    const normalizedFundedAmount =
+      fundedAmount !== undefined && fundedAmount !== null
+        ? String(fundedAmount)
+        : "0";
 
     // Store delegation
     const delegationData = {
       supporter: supporterAddress.toLowerCase(),
       monachad: monachadAddress.toLowerCase(),
       matchId,
-      amount: amountToStake,
-      spendingLimit: amountToStake,
+      amount: normalizedFundedAmount,
+      spendingLimit: normalizedFundedAmount,
       spent: "0",
       expiresAt: new Date(Date.now() + match.duration * 1000),
       delegationHash: signedDelegation.signature,
@@ -629,13 +1018,15 @@ export class MatchesService {
           address: supporterAddress.toLowerCase(),
           role: "SUPPORTER",
           followingAddress: monachadAddress.toLowerCase(),
-          stakedAmount: amountToStake,
+          marginAmount: "0",
+          entryFeePaid: String(normalizedEntryFee),
+          fundedAmount: normalizedFundedAmount,
           pnl: "0",
           joinedTxHash: "0x0",
-        },
+        } as any,
       });
 
-      console.log("Delegation Data:", delegationData);
+      this.logger.debug(`Delegation Data: ${JSON.stringify(delegationData)}`);
       const delegation = await tx.delegation.create({
         data: delegationData,
       });
@@ -643,8 +1034,8 @@ export class MatchesService {
       return { participant, delegation };
     });
 
-    console.log(
-      `✅ User ${supporterAddress} joined match ${matchId} as Supporter, following ${monachadAddress}`
+    this.logger.log(
+      `User ${supporterAddress} joined match ${matchId} as Supporter, following ${monachadAddress}`
     );
 
     return {
@@ -658,5 +1049,59 @@ export class MatchesService {
       followingMonachad: monachadAddress,
     };
   }
-}
 
+  private parseInteger(value: any): number {
+    if (typeof value === "number") {
+      return value;
+    }
+
+    if (typeof value === "string") {
+      const parsed = parseInt(value, 10);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+
+    if (typeof value === "bigint") {
+      return Number(value);
+    }
+
+    return 0;
+  }
+
+  async applyMatchStartedUpdate(payload: any): Promise<boolean> {
+    const { matchId, startTime, transactionHash, blockNumber } = payload;
+
+    const startTimestamp =
+      startTime !== undefined && startTime !== null
+        ? this.parseInteger(startTime) * 1000
+        : undefined;
+
+    const updateData: any = {
+      status: MatchStatus.ACTIVE,
+      startedTxHash: transactionHash,
+      updatedAt: new Date(),
+    };
+
+    if (startTimestamp !== undefined) {
+      updateData.startTime = new Date(startTimestamp);
+    }
+
+    if (blockNumber !== undefined && blockNumber !== null) {
+      updateData.blockNumber = this.parseInteger(blockNumber);
+    }
+
+    const result = await this.db.match.updateMany({
+      where: { matchId },
+      data: updateData,
+    });
+
+    if (result.count === 0) {
+      this.logger.warn(
+        `Received match.started for ${matchId} but no match record was updated`
+      );
+      return false;
+    }
+
+    this.logger.log(`Match ${matchId} marked active`);
+    return true;
+  }
+}

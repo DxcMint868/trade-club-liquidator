@@ -4,7 +4,7 @@ import { DatabaseService } from "../database/database.service";
 import { ContractService } from "../blockchain/contract.service";
 import { DelegationService } from "../delegation/delegation.service";
 import { TradingService } from "./trading.service";
-import { TradeType } from "@prisma/client";
+import { ParticipantRole, TradeType } from "@prisma/client";
 import { createPublicClient, http, type Hex } from "viem";
 import { createBundlerClient } from "viem/account-abstraction";
 import {
@@ -12,6 +12,7 @@ import {
   ExecutionMode,
   type Delegation,
 } from "@metamask/delegation-toolkit";
+import { Delegation as DelegationInDb } from "@prisma/client";
 
 // DelegationManager contract - loaded dynamically at runtime
 let DelegationManagerContract: any;
@@ -23,6 +24,10 @@ interface CopyTradeParams {
     target: string;
     value: string;
     data: string;
+  };
+  metadata?: {
+    sizeToPortfolioBps?: string;
+    [key: string]: any;
   };
 }
 
@@ -124,6 +129,16 @@ export class CopyEngineService {
     }
 
     const originalTradeValue = BigInt(originalTrade.value);
+    const sizeToPortfolioBps = params.metadata?.sizeToPortfolioBps
+      ? BigInt(params.metadata.sizeToPortfolioBps)
+      : null;
+
+    if (!sizeToPortfolioBps) {
+      this.logger.error(
+        "executeCopyTrades: sizeToPortfolioBps missing from metadata, aboring copy trade"
+      );
+      return;
+    }
 
     // Prepare batch of trades
     const batchTrades: BatchCopyTrade[] = [];
@@ -132,13 +147,15 @@ export class CopyEngineService {
       try {
         // Calculate proportional trade size
         const delegationAmount = BigInt(delegation.amount);
-        const proportionalValue =
-          (originalTradeValue * delegationAmount) / totalDelegatedAmount;
+        const proportionalValue: bigint =
+          (delegationAmount * sizeToPortfolioBps) / 10000n;
 
         // Validate delegation is still valid on-chain
-        const isValid = await this.delegationService.isValidDelegation(
-          delegation.delegationHash
-        );
+        const isValid =
+          await this.delegationService.isDelegationValidAndNotExpired(
+            delegation
+          );
+
         if (!isValid) {
           this.logger.warn(
             `Delegation ${delegation.delegationHash} is no longer valid, skipping`
@@ -158,9 +175,7 @@ export class CopyEngineService {
         }
 
         // Retrieve the signed delegation from database (stored when user created it)
-        const signedDelegation = await this.getSignedDelegation(
-          delegation.delegationHash
-        );
+        const signedDelegation = await this.getSignedDelegation(delegation);
 
         if (!signedDelegation) {
           this.logger.error(
@@ -230,9 +245,13 @@ export class CopyEngineService {
       if (!DelegationManagerContract) {
         try {
           // Use require() to bypass TypeScript module resolution issues
-          DelegationManagerContract = require("@metamask/delegation-toolkit/contracts").DelegationManager;
+          DelegationManagerContract =
+            require("@metamask/delegation-toolkit/contracts").DelegationManager;
         } catch (error) {
-          this.logger.error("Failed to load DelegationManager from toolkit", error);
+          this.logger.error(
+            "Failed to load DelegationManager from toolkit",
+            error
+          );
           throw new Error("MetaMask Delegation Toolkit not available");
         }
       }
@@ -274,7 +293,7 @@ export class CopyEngineService {
       }
 
       this.logger.log(
-        `✅ Batch executed in block ${receipt.receipt.blockNumber}, txHash: ${receipt.receipt.transactionHash}`
+        `Batch executed in block ${receipt.receipt.blockNumber}, txHash: ${receipt.receipt.transactionHash}`
       );
 
       // Update database records for all successful trades
@@ -319,7 +338,10 @@ export class CopyEngineService {
             data: {
               matchId,
               address: supporter.toLowerCase(),
-              stakedAmount: delegation.amount,
+              role: ParticipantRole.SUPPORTER,
+              marginAmount: "0",
+              entryFeePaid: "0",
+              fundedAmount: delegation.amount,
               pnl: "0",
             },
           });
@@ -367,17 +389,11 @@ export class CopyEngineService {
    * Users sign delegations on frontend, we store them here
    */
   private async getSignedDelegation(
-    delegationHash: string
+    delegation: DelegationInDb
   ): Promise<SignedDelegation | null> {
-    const delegation = await this.db.delegation.findUnique({
-      where: { delegationHash },
-    });
-
     if (!delegation || !delegation.signedDelegation) {
       return null;
     }
-
-    // Parse the stored JSON back to SignedDelegation object
     return JSON.parse(delegation.signedDelegation);
   }
 

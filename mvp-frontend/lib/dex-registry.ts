@@ -1,3 +1,5 @@
+import { PathnameContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
+
 export interface DexInfo {
   id: string;
   name: string;
@@ -25,19 +27,36 @@ export const DEX_REGISTRY: Record<string, DexInfo> = {
     address: "0x...", // Add actual address
     icon: "🦄",
     description: "Decentralized exchange protocol",
-    isActive: false, // Enable when integrated
+    isActive: true, // Enable when integrated
     chainId: 84532,
   },
-  // More DEXs...
+  pancakeSwap: {
+    id: "pancakeSwap",
+    name: "PancakeSwap",
+    address: "0x...", // Add actual address
+    icon: "🥞",
+    description: "Popular DEX on Binance Smart Chain",
+    isActive: true, // Enable when integrated
+    chainId: 56,
+  },
+  sushiswap: {
+    id: "sushiswap",
+    name: "SushiSwap",
+    address: "0x...", // Add actual address
+    icon: "🍣",
+    description: "Community-driven DEX",
+    isActive: true, // Enable when integrated
+    chainId: 84532,
+  },
 };
 
 export function getActiveDexes(): DexInfo[] {
-  return Object.values(DEX_REGISTRY).filter(dex => dex.isActive);
+  return Object.values(DEX_REGISTRY).filter((dex) => dex.isActive);
 }
 
 export function getDexByAddress(address: string): DexInfo | undefined {
   return Object.values(DEX_REGISTRY).find(
-    dex => dex.address.toLowerCase() === address.toLowerCase()
+    (dex) => dex.address.toLowerCase() === address.toLowerCase()
   );
 }
 
