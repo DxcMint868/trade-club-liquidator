@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { useColor } from "@/contexts/color-context"
 import { useEffect, useRef, useState } from "react"
+import Link from "next/link"
 
 const crowdQuotes = [
   { text: "Who's getting liquidated tonight?", position: "top-48 left-64", delay: 0.2 },
@@ -93,17 +94,19 @@ export function HeroSection() {
           </h2>
 
           <div className="mt-10 md:mt-16 flex justify-center">
-            <button
-              aria-label="Enter the arena"
-              className="px-8 py-3 rounded-full text-lg font-semibold bg-[#0b0b0d] border-2 transition-colors duration-300 ease-out hover:bg-[hsl(var(--neon-purple))] hover:text-[#0b0b0d] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--neon-purple))]"
-              style={{
-                borderColor: 'hsl(var(--neon-purple))',
-                color: 'white',
-                boxShadow: '0 6px 18px rgba(12,8,20,0.6)'
-              }}
-            >
-              Enter the arena
-            </button>
+            <Link href="/matches">
+              <button
+                aria-label="Enter the arena"
+                className="px-8 py-3 rounded-full text-lg font-semibold bg-[#0b0b0d] border-2 transition-colors duration-300 ease-out hover:bg-[hsl(var(--neon-purple))] hover:text-[#0b0b0d] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--neon-purple))]"
+                style={{
+                  borderColor: 'hsl(var(--neon-purple))',
+                  color: 'white',
+                  boxShadow: '0 6px 18px rgba(12,8,20,0.6)'
+                }}
+              >
+                Enter the arena
+              </button>
+            </Link>
           </div>
         </div>
 

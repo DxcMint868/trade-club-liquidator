@@ -2,9 +2,17 @@
 
 import { Button } from "@/components/ui/button"
 import { useColor } from "@/contexts/color-context"
+import { ConnectButton } from '@rainbow-me/rainbowkit'
 
-export function Navigation() {
-  const { currentColor } = useColor()
+interface NavigationProps {
+  color?: string;
+}
+
+export function Navigation({ color }: NavigationProps = {}) {
+  const colorContext = useColor()
+  
+  // Use provided color prop or fall back to context color
+  const currentColor = color || colorContext?.currentColor || "#3b82f6"
   
   return (
     <nav className="fixed top-8 left-1/2 -translate-x-1/2 z-50 w-[95%] max-w-7xl">
@@ -42,26 +50,165 @@ export function Navigation() {
           >
             About
           </a>
-          <Button
-            className="rounded-full px-6 py-2 text-sm font-medium transition-all duration-700"
-            style={{
-              border: `1px solid ${currentColor}`,
-              color: currentColor,
-              backgroundColor: "transparent",
+          <ConnectButton.Custom>
+            {({
+              account,
+              chain,
+              openAccountModal,
+              openChainModal,
+              openConnectModal,
+              authenticationStatus,
+              mounted,
+            }) => {
+              // Note: If your app doesn't use authentication, you
+              // can remove all 'authenticationStatus' checks
+              const ready = mounted && authenticationStatus !== 'loading';
+              const connected =
+                ready &&
+                account &&
+                chain &&
+                (!authenticationStatus ||
+                  authenticationStatus === 'authenticated');
+
+              return (
+                <div
+                  {...(!ready && {
+                    'aria-hidden': true,
+                    'style': {
+                      opacity: 0,
+                      pointerEvents: 'none',
+                      userSelect: 'none',
+                    },
+                  })}
+                >
+                  {(() => {
+                    if (!connected) {
+                      return (
+                        <Button
+                          onClick={openConnectModal}
+                          className="rounded-full px-6 py-2 text-sm font-medium transition-all duration-700"
+                          style={{
+                            border: `1px solid ${currentColor}`,
+                            color: currentColor,
+                            backgroundColor: "transparent",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = currentColor
+                            e.currentTarget.style.color = "white"
+                            e.currentTarget.style.boxShadow = `0 0 20px ${currentColor}`
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = "transparent"
+                            e.currentTarget.style.color = currentColor
+                            e.currentTarget.style.boxShadow = "none"
+                          }}
+                        >
+                          Connect Wallet
+                        </Button>
+                      );
+                    }
+
+                    if (chain.unsupported) {
+                      return (
+                        <Button
+                          onClick={openChainModal}
+                          className="rounded-full px-6 py-2 text-sm font-medium transition-all duration-700"
+                          style={{
+                            border: `1px solid #ef4444`,
+                            color: "#ef4444",
+                            backgroundColor: "transparent",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = "#ef4444"
+                            e.currentTarget.style.color = "white"
+                            e.currentTarget.style.boxShadow = `0 0 20px #ef4444`
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = "transparent"
+                            e.currentTarget.style.color = "#ef4444"
+                            e.currentTarget.style.boxShadow = "none"
+                          }}
+                        >
+                          Wrong network
+                        </Button>
+                      );
+                    }
+
+                    return (
+                      <div className="flex gap-3">
+                        <Button
+                          onClick={openChainModal}
+                          className="rounded-full px-4 py-2 text-sm font-medium transition-all duration-700"
+                          style={{
+                            border: `1px solid ${currentColor}`,
+                            color: currentColor,
+                            backgroundColor: "transparent",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = currentColor
+                            e.currentTarget.style.color = "white"
+                            e.currentTarget.style.boxShadow = `0 0 20px ${currentColor}`
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = "transparent"
+                            e.currentTarget.style.color = currentColor
+                            e.currentTarget.style.boxShadow = "none"
+                          }}
+                        >
+                          {chain.hasIcon && (
+                            <div
+                              style={{
+                                background: chain.iconBackground,
+                                width: 12,
+                                height: 12,
+                                borderRadius: 999,
+                                overflow: 'hidden',
+                                marginRight: 4,
+                              }}
+                            >
+                              {chain.iconUrl && (
+                                <img
+                                  alt={chain.name ?? 'Chain icon'}
+                                  src={chain.iconUrl}
+                                  style={{ width: 12, height: 12 }}
+                                />
+                              )}
+                            </div>
+                          )}
+                          {chain.name}
+                        </Button>
+
+                        <Button
+                          onClick={openAccountModal}
+                          className="rounded-full px-4 py-2 text-sm font-medium transition-all duration-700"
+                          style={{
+                            border: `1px solid ${currentColor}`,
+                            color: currentColor,
+                            backgroundColor: "transparent",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = currentColor
+                            e.currentTarget.style.color = "white"
+                            e.currentTarget.style.boxShadow = `0 0 20px ${currentColor}`
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = "transparent"
+                            e.currentTarget.style.color = currentColor
+                            e.currentTarget.style.boxShadow = "none"
+                          }}
+                        >
+                          {account.displayName}
+                          {account.displayBalance
+                            ? ` (${account.displayBalance})`
+                            : ''}
+                        </Button>
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = currentColor
-              e.currentTarget.style.color = "white"
-              e.currentTarget.style.boxShadow = `0 0 20px ${currentColor}`
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "transparent"
-              e.currentTarget.style.color = currentColor
-              e.currentTarget.style.boxShadow = "none"
-            }}
-          >
-            Connect Wallet
-          </Button>
+          </ConnectButton.Custom>
         </div>
       </div>
     </nav>
