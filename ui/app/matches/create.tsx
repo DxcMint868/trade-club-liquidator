@@ -22,14 +22,14 @@ export default function CreateMatchPage() {
   const [selectedDexes, setSelectedDexes] = useState<string[]>([]);
   const [isCreating, setIsCreating] = useState(false);
 
-  const activeDexes = getActiveDexes();
-
   useEffect(() => {
     if (!entryMargin) return;
     setEntryFee(parseFloat(entryMargin) * 0.1);
   }, [entryMargin]);
 
-  const toggleDex = (dexAddress: string) => {
+  const activeDexes = getActiveDexes();
+
+  const toggleDex = (dexAddress: string): void => {
     setSelectedDexes((prev) =>
       prev.includes(dexAddress)
         ? prev.filter((addr) => addr !== dexAddress)
@@ -303,8 +303,8 @@ export default function CreateMatchPage() {
                             <div className="flex items-center gap-4">
                               <img
                                 src={dex.icon}
-                                alt={dex.name}
-                                className="h-8 w-8 rounded-full"
+                                alt={dex.name + " logo"}
+                                className="h-10 w-10 rounded-xl bg-black/30 object-contain border border-blue-400/30"
                               />
                               <div>
                                 <div className="flex items-center gap-3">
