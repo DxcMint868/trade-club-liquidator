@@ -17,7 +17,13 @@ export function Navigation({ color }: NavigationProps = {}) {
   
   return (
     <nav className="fixed top-8 left-1/2 -translate-x-1/2 z-50 w-[95%] max-w-7xl">
-      <div className="relative bg-black/40 backdrop-blur-xl border border-white/10 rounded-full px-8 py-4 flex items-center justify-between shadow-2xl">
+      <div 
+        className="relative bg-black/40 backdrop-blur-xl rounded-full px-8 py-4 flex items-center justify-between shadow-2xl"
+        style={{
+          border: `1px solid ${currentColor}50`,
+          boxShadow: `0 0 15px ${currentColor}25, 0 4px 20px rgba(0,0,0,0.5)`
+        }}
+      >
         {/* Gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-r from-purple-500/5 via-transparent to-purple-500/5 rounded-full pointer-events-none" />
         
