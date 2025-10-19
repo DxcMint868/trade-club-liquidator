@@ -55,6 +55,32 @@ export function HeroSection() {
     <>
       {/* First part - What's the first rule */}
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
+        {/* Pepemon5 on the bottom left corner */}
+        <div className="absolute left-0 bottom-8 md:bottom-12 lg:bottom-16 z-5">
+          <img 
+            src="/pepemon5.png" 
+            alt="Pepemon5" 
+            className="w-48 md:w-64 lg:w-80 xl:w-96 h-auto opacity-90"
+            style={{
+              filter: 'drop-shadow(0 0 30px rgba(168, 85, 247, 0.4))',
+              animation: 'float 6s ease-in-out infinite'
+            }}
+          />
+        </div>
+
+        {/* Hedgehogmon1 on the bottom right corner */}
+        <div className="absolute right-0 bottom-8 md:bottom-12 lg:bottom-16 z-5">
+          <img 
+            src="/hedgehogmon1.png" 
+            alt="Hedgehogmon1" 
+            className="w-64 md:w-80 lg:w-96 xl:w-96 h-auto opacity-90"
+            style={{
+              filter: 'drop-shadow(0 0 30px rgba(168, 85, 247, 0.4))',
+              animation: 'float 8s ease-in-out infinite reverse'
+            }}
+          />
+        </div>
+
         <div className="relative z-10 text-center px-4 max-w-5xl mx-auto">
           <h1
             className="text-6xl md:text-8xl font-bold animate-fade-in-up text-balance transition-colors duration-300"

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react"
 const stats = [
   {
     label: "Tonight's Competitors",
-    value: "Monachad vs. DegenKing",
+    value: "L!quidat0r33 vs. DegenKing",
     color: "hsl(var(--neon-purple))",
   },
   {
@@ -28,17 +28,31 @@ const stats = [
 
 export function StatsSection() {
   const [isVisible, setIsVisible] = useState(false)
+  const [pepemonVisible, setPepemonVisible] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true)
-        }
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setIsVisible(true);
+            // Delay Pepemon1 animation - arrive later when more content is visible
+            setTimeout(() => {
+              setPepemonVisible(true);
+            }, 800);
+          } else {
+            setIsVisible(false);
+            // Move out sooner when leaving the section
+            setPepemonVisible(false);
+          }
+        });
       },
-      { threshold: 0.2 },
-    )
+      { 
+        threshold: 0.5, // Higher threshold - need more of section visible before triggering
+        rootMargin: '-50px 0px -100px 0px' // Negative margins to trigger later and exit sooner
+      }
+    );
 
     if (ref.current) {
       observer.observe(ref.current)
@@ -55,6 +69,23 @@ export function StatsSection() {
           className="absolute inset-0"
           style={{
             backgroundImage: `repeating-linear-gradient(0deg, hsl(var(--neon-purple)) 0px, transparent 1px, transparent 40px)`,
+          }}
+        />
+      </div>
+
+      {/* Pepemon1 on the bottom left corner */}
+      <div 
+        className={`absolute left-0 bottom-8 z-5 transition-all duration-1000 ease-out ${
+          pepemonVisible ? 'translate-x-0 opacity-80' : '-translate-x-full opacity-0'
+        }`}
+      >
+        <img 
+          src="/pepemon1.png" 
+          alt="Pepemon1" 
+          className="w-32 md:w-48 lg:w-64 h-auto"
+          style={{
+            filter: 'drop-shadow(0 0 25px rgba(255, 133, 51, 0.4))',
+            animation: pepemonVisible ? 'float 7s ease-in-out infinite' : 'none'
           }}
         />
       </div>

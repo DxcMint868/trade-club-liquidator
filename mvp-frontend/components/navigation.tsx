@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { useColor } from "@/contexts/color-context"
 import { ConnectButton } from '@rainbow-me/rainbowkit'
+import Link from "next/link"
 
 interface NavigationProps {
   color?: string;
@@ -22,33 +23,35 @@ export function Navigation({ color }: NavigationProps = {}) {
         
         {/* Logo */}
         <div className="relative flex items-center gap-2">
-          <div 
-            className="text-2xl font-bold transition-colors duration-700" 
-            style={{ color: currentColor }}
-          >
-            TradeClub
-          </div>
+          <Link href="/" className="transition-all duration-300 hover:scale-105">
+            <div 
+              className="text-2xl font-bold transition-colors duration-700 cursor-pointer" 
+              style={{ color: currentColor }}
+            >
+              TradeClub
+            </div>
+          </Link>
         </div>
         
         {/* Navigation Links */}
         <div className="hidden md:flex items-center gap-8">
-          <a 
-            href="#leaderboard" 
+          <Link 
+            href="/trade" 
             className="text-white/70 hover:text-white transition-colors text-sm font-medium"
           >
-            Leaderboard
-          </a>
-          <a 
-            href="#join" 
+            FUNDex
+          </Link>
+          <Link 
+            href="/matches" 
             className="text-white/70 hover:text-white transition-colors text-sm font-medium"
           >
-            Join Match
-          </a>
+            Arena
+          </Link>
           <a 
-            href="#about" 
+            href="#docs" 
             className="text-white/70 hover:text-white transition-colors text-sm font-medium"
           >
-            About
+            Docs
           </a>
           <ConnectButton.Custom>
             {({

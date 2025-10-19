@@ -6,9 +6,27 @@ import { Trophy, Users, TrendingUp } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 const topTraders = [
-  { name: "Monachad", points: 15420, rank: 1 },
-  { name: "DegenKing", points: 12890, rank: 2 },
-  { name: "LiquidHunter", points: 11250, rank: 3 },
+  { 
+    name: "MonaPhantom", 
+    points: 15420, 
+    rank: 1, 
+    quote: "I don't just trade, I liquidate dreams.",
+    title: "The Phantom Liquidator"
+  },
+  { 
+    name: "DegenKing", 
+    points: 12890, 
+    rank: 2, 
+    quote: "Every dip is an opportunity, every pump is destiny.",
+    title: "The Degen Monarch"
+  },
+  { 
+    name: "LiquidHunter", 
+    points: 11250, 
+    rank: 3, 
+    quote: "I hunt in the shadows of volatility.",
+    title: "The Shadow Hunter"
+  },
 ]
 
 const steps = [
@@ -72,64 +90,161 @@ export function ValleySection() {
         </svg>
       </div>
 
-      <div className="relative z-10 container mx-auto max-w-6xl">
+      <div className="relative z-10 w-full px-4 lg:px-8">
         {/* Section title */}
         <div className="text-center mb-16">
           <h2
             className="text-5xl md:text-6xl font-bold mb-4 neon-glow text-balance"
             style={{ color: "hsl(var(--neon-purple))" }}
           >
-            The Valley
+            The Valley of Monachads
           </h2>
           <p className="text-xl text-foreground/80 text-balance">Where legends are made and degens get liquidated</p>
         </div>
 
         {/* Leaderboard preview */}
-        <Card className="bg-black/30 p-8 mb-16" style={{ borderColor: "hsl(var(--neon-purple) / 0.3)" }}>
-          <h3 className="text-3xl font-bold mb-8 flex items-center gap-3" style={{ color: "hsl(var(--neon-orange))" }}>
+        <div className="mb-16">
+          <h3 className="text-3xl font-bold mb-12 flex items-center justify-center gap-3" style={{ color: "hsl(var(--neon-orange))" }}>
             <Trophy className="w-8 h-8" />
-            Top Traders
+            CHAD LEADERBOARD
           </h3>
-          <div className="space-y-4">
-            {topTraders.map((trader) => (
-              <div
-                key={trader.rank}
-                className="flex items-center justify-between p-4 rounded-lg bg-background/50 border border-border hover:border-[hsl(var(--neon-purple))]/50 transition-all"
-              >
-                <div className="flex items-center gap-4">
-                  <div
-                    className="text-2xl font-bold w-10 h-10 flex items-center justify-center rounded-full"
-                    style={{
-                      background:
-                        trader.rank === 1
-                          ? "hsl(var(--neon-orange))"
-                          : trader.rank === 2
-                            ? "hsl(var(--neon-blue))"
-                            : "hsl(var(--neon-purple))",
-                      color: "hsl(var(--background))",
-                    }}
-                  >
-                    {trader.rank}
-                  </div>
-                  <Avatar className="w-12 h-12 border-2" style={{ borderColor: "hsl(var(--neon-purple))" }}>
-                    <AvatarFallback
+          
+          {/* Character-based leaderboard */}
+          <div className="space-y-16">
+            {topTraders.map((trader, index) => {
+              const isEvenIndex = index % 2 === 0;
+              const characterImage = `monachad${index + 1}.png`;
+              
+              return (
+                <div
+                  key={trader.rank}
+                  className={`flex items-center gap-12 lg:gap-20 xl:gap-24 ${
+                    isEvenIndex ? 'flex-row-reverse justify-start pr-0 lg:pr-16' : 'flex-row justify-start pl-0 lg:pl-16'
+                  } w-full`}
+                >
+                  {/* Character Image - Much Bigger */}
+                  <div className="flex-shrink-0 relative">
+                    <img 
+                      src={`/${characterImage}`} 
+                      alt={`Monachad ${index + 1}`} 
+                      className={`${
+                        trader.rank === 3 
+                          ? 'w-64 h-64 md:w-80 md:h-80 lg:w-96 lg:h-96 xl:w-[28rem] xl:h-[28rem]'
+                          : 'w-56 h-56 md:w-72 md:h-72 lg:w-80 lg:h-80 xl:w-96 xl:h-96'
+                      } object-contain`}
                       style={{
-                        backgroundColor: "hsl(var(--neon-purple) / 0.2)",
-                        color: "hsl(var(--neon-purple))",
+                        filter: `drop-shadow(0 0 40px ${
+                          trader.rank === 1
+                            ? 'rgba(255, 133, 51, 0.8)'
+                            : trader.rank === 2
+                              ? 'rgba(51, 144, 255, 0.8)'
+                              : 'rgba(168, 85, 247, 0.8)'
+                        })`,
+                        animation: 'float 8s ease-in-out infinite'
+                      }}
+                    />
+                  </div>
+
+                  {/* Testimonial-Style Stats Card */}
+                  <div className="flex-1 max-w-2xl">
+                    <Card 
+                      className="bg-black/50 backdrop-blur-md p-8 lg:p-10 border-2 transition-all hover:scale-[1.02] relative overflow-hidden"
+                      style={{ 
+                        borderColor: trader.rank === 1
+                          ? "hsl(var(--neon-orange) / 0.5)"
+                          : trader.rank === 2
+                            ? "hsl(var(--neon-blue) / 0.5)"
+                            : "hsl(var(--neon-purple) / 0.5)",
+                        background: `linear-gradient(135deg, 
+                          rgba(0, 0, 0, 0.8) 0%, 
+                          ${trader.rank === 1
+                            ? "rgba(255, 133, 51, 0.15)"
+                            : trader.rank === 2
+                              ? "rgba(51, 144, 255, 0.15)"
+                              : "rgba(168, 85, 247, 0.15)"
+                          } 100%)`
                       }}
                     >
-                      {trader.name.slice(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="text-xl font-semibold">{trader.name}</span>
+                      {/* Quote Icon */}
+                      <div 
+                        className="absolute top-4 left-4 text-6xl opacity-20 font-serif"
+                        style={{ 
+                          color: trader.rank === 1
+                            ? "hsl(var(--neon-orange))"
+                            : trader.rank === 2
+                              ? "hsl(var(--neon-blue))"
+                              : "hsl(var(--neon-purple))"
+                        }}
+                      >
+                        "
+                      </div>
+                      
+                      <div className={`${isEvenIndex ? 'text-left' : 'text-right'} relative z-10`}>
+                        {/* Quote */}
+                        <blockquote className="text-lg md:text-xl lg:text-2xl font-medium text-foreground/90 mb-6 italic leading-relaxed">
+                          "{trader.quote}"
+                        </blockquote>
+                        
+                        {/* Name and Title */}
+                        <div className="mb-4">
+                          <h4 
+                            className="text-3xl md:text-4xl lg:text-5xl font-black mb-2"
+                            style={{ 
+                              color: trader.rank === 1
+                                ? "hsl(var(--neon-orange))"
+                                : trader.rank === 2
+                                  ? "hsl(var(--neon-blue))"
+                                  : "hsl(var(--neon-purple))"
+                            }}
+                          >
+                            {trader.name}
+                          </h4>
+                          <p className="text-foreground/70 text-lg md:text-xl font-semibold">
+                            {trader.title}
+                          </p>
+                        </div>
+                        
+                        {/* Stats */}
+                        <div className={`flex flex-col gap-2 ${isEvenIndex ? 'items-start' : 'items-end'}`}>
+                          <div className="flex items-center gap-3">
+                            <span className="text-lg text-foreground/60">Rank:</span>
+                            <span 
+                              className="text-2xl md:text-3xl font-bold"
+                              style={{ 
+                                color: trader.rank === 1
+                                  ? "hsl(var(--neon-orange))"
+                                  : trader.rank === 2
+                                    ? "hsl(var(--neon-blue))"
+                                    : "hsl(var(--neon-purple))"
+                              }}
+                            >
+                              {trader.rank === 1 ? "👑 CHAMPION" : trader.rank === 2 ? "🥈 VETERAN" : "🥉 MASTER"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-lg text-foreground/60">XP:</span>
+                            <span 
+                              className="text-3xl md:text-4xl lg:text-5xl font-black"
+                              style={{ 
+                                color: trader.rank === 1
+                                  ? "hsl(var(--neon-orange))"
+                                  : trader.rank === 2
+                                    ? "hsl(var(--neon-blue))"
+                                    : "hsl(var(--neon-purple))"
+                              }}
+                            >
+                              {trader.points.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </Card>
+                  </div>
                 </div>
-                <div className="text-2xl font-bold" style={{ color: "hsl(var(--neon-purple))" }}>
-                  {trader.points.toLocaleString()} XP
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-        </Card>
+        </div>
 
         {/* How it works */}
         <div className="mb-16">
