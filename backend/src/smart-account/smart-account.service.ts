@@ -255,8 +255,12 @@ export class SmartAccountService {
     }
   }
 
-  async checkDeploymentStatus(smartAccountAddress: string) {
+  async checkDeploymentStatus(ownerAddress: string) {
     try {
+      const smartAccountAddress = await this.deriveSmartAccountFromEOA(
+        ownerAddress as Hex,
+        Implementation.Hybrid
+      );
       const code = await this.publicClient.getCode({
         address: smartAccountAddress as Hex,
       });
@@ -286,22 +290,19 @@ export class SmartAccountService {
     this.logger.log(
       `Storing smart account: ${smartAccountAddress} for owner: ${ownerAddress}`
     );
-
-    // For now, just log it. You can add a SmartAccount table to Prisma schema later
-    // Example:
-    // await this.db.smartAccount.create({
-    //   data: {
-    //     address: smartAccountAddress,
-    //     owner: ownerAddress,
-    //     deploymentTxHash: txHash,
-    //     deploymentBlock: parseInt(blockNumber),
-    //   },
-    // });
   }
 
-  async getSmartAccount(ownerAddress: string) {
-    // Retrieve smart account info
-    // For now, return null since we don't have the table yet
-    return null;
+  private async deriveSmartAccountFromEOA(
+    ownerAddress: Hex,
+    implementation: Implementation
+  ) {
+    const smartAccount = await toMetaMaskSmartAccount({
+      client: this.publicClient,
+      implementation,
+      deployParams: [ownerAddress, [], [], []],
+      deploySalt: "0x00" as Hex,
+      signer: { account: this.relayerAccount },
+    });
+    return smartAccount.address;
   }
 }
