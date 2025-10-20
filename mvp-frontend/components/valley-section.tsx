@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Trophy, Users, TrendingUp } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import Link from "next/link"
 
 const topTraders = [
   { 

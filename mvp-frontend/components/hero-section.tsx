@@ -120,9 +120,9 @@ export function HeroSection() {
           </h2>
 
           <div className="mt-10 md:mt-16 flex justify-center">
-            <Link href="/matches">
+            <Link href="/onboarding">
               <button
-                aria-label="Enter the arena"
+                aria-label="Get Started!"
                 className="px-8 py-3 rounded-full text-lg font-semibold bg-[#0b0b0d] border-2 transition-colors duration-300 ease-out hover:bg-[hsl(var(--neon-purple))] hover:text-[#0b0b0d] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--neon-purple))]"
                 style={{
                   borderColor: 'hsl(var(--neon-purple))',
@@ -130,7 +130,7 @@ export function HeroSection() {
                   boxShadow: '0 6px 18px rgba(12,8,20,0.6)'
                 }}
               >
-                Enter the arena
+                Get Started!
               </button>
             </Link>
           </div>

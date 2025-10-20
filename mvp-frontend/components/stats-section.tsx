@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
 
 const stats = [
   {
@@ -30,6 +31,7 @@ export function StatsSection() {
   const [isVisible, setIsVisible] = useState(false)
   const [pepemonVisible, setPepemonVisible] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const router = useRouter()
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -141,10 +143,26 @@ export function StatsSection() {
 
         {/* Call to action */}
         <div
-          className={`text-center mt-16 transition-all duration-700 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"}`}
+          className={`mt-16 transition-all duration-700 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"}`}
           style={{ transitionDelay: "0.5s" }}
         >
-          <p className="text-xl text-foreground/70 italic">The arena awaits. Will you compete or spectate?</p>
+          <p className="text-xl text-foreground/70 italic text-center">The arena awaits. Will you compete or spectate?</p>
+
+          {/* Centered button */}
+          <div className="mt-6 flex justify-center">
+            <button
+              aria-label="Enter the arena"
+              onClick={() => router.push('/matches')}
+              className="px-8 py-3 rounded-full text-lg font-semibold bg-[#0b0b0d] border-2 transition-colors duration-300 ease-out hover:bg-[hsl(var(--neon-purple))] hover:text-[#0b0b0d] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--neon-purple))]"
+              style={{
+                borderColor: 'hsl(var(--neon-purple))',
+                color: 'white',
+                boxShadow: '0 6px 18px rgba(12,8,20,0.6)'
+              }}
+            >
+              Enter the arena
+            </button>
+          </div>
         </div>
       </div>
     </section>
