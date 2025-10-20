@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { useColor } from "@/contexts/color-context"
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import Link from "next/link"
+import Image from "next/image"
 
 interface NavigationProps {
   color?: string;
@@ -29,7 +30,8 @@ export function Navigation({ color }: NavigationProps = {}) {
         
         {/* Logo */}
         <div className="relative flex items-center gap-2">
-          <Link href="/" className="transition-all duration-300 hover:scale-105">
+          <Link href="/" className="flex items-center gap-2 transition-all duration-300 hover:scale-105">
+            <Image src="/logo.png" alt="TradeClub Logo" width={48} height={48} />
             <div 
               className="text-2xl font-bold transition-colors duration-700 cursor-pointer" 
               style={{ color: currentColor }}
@@ -39,26 +41,28 @@ export function Navigation({ color }: NavigationProps = {}) {
           </Link>
         </div>
         
-        {/* Navigation Links */}
-        <div className="hidden md:flex items-center gap-8">
-          <Link 
-            href="/trade" 
-            className="text-white/70 hover:text-white transition-colors text-sm font-medium"
-          >
-            FUNDex
-          </Link>
-          <Link 
-            href="/matches" 
-            className="text-white/70 hover:text-white transition-colors text-sm font-medium"
-          >
-            Arena
-          </Link>
-          <Link 
-            href="/docs" 
-            className="text-white/70 hover:text-white transition-colors text-sm font-medium"
-          >
-            Docs
-          </Link>
+        {/* Navigation Links and Onboarding */}
+        <div className="flex items-center gap-8">
+          <div className="hidden md:flex items-center gap-8">
+            <Link 
+              href="/trade" 
+              className="text-white/70 hover:text-white transition-colors text-sm font-medium"
+            >
+              FUNDex
+            </Link>
+            <Link 
+              href="/matches" 
+              className="text-white/70 hover:text-white transition-colors text-sm font-medium"
+            >
+              Arena
+            </Link>
+            <Link 
+              href="/docs" 
+              className="text-white/70 hover:text-white transition-colors text-sm font-medium"
+            >
+              Docs
+            </Link>
+          </div>
           <ConnectButton.Custom>
             {({
               account,
@@ -218,6 +222,11 @@ export function Navigation({ color }: NavigationProps = {}) {
               );
             }}
           </ConnectButton.Custom>
+          <Link href="/onboarding">
+            <div className="w-10 h-10 rounded-full overflow-hidden cursor-pointer transition-all duration-300 hover:scale-110">
+              <Image src="/MONlogo.jpg" alt="Onboarding" width={40} height={40} />
+            </div>
+          </Link>
         </div>
       </div>
     </nav>
