@@ -53,12 +53,12 @@ export function Navigation({ color }: NavigationProps = {}) {
           >
             Arena
           </Link>
-          <a 
-            href="#docs" 
+          <Link 
+            href="/docs" 
             className="text-white/70 hover:text-white transition-colors text-sm font-medium"
           >
             Docs
-          </a>
+          </Link>
           <ConnectButton.Custom>
             {({
               account,

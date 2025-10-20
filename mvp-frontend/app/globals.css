@@ -42,6 +42,15 @@
     @apply text-foreground;
     background: transparent;
   }
+
+  /* Make strong elements match the app neon purple theme */
+  strong,
+  .prose strong {
+    color: hsl(var(--neon-purple));
+    /* subtle glow to match other neon text treatments */
+    text-shadow: 0 0 6px hsla(271, 81%, 56%, 0.18);
+    font-weight: 700;
+  }
 }
 
 @keyframes fadeInUp {
