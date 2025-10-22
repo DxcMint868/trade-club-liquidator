@@ -65,7 +65,7 @@ export default function CreateMatchPage() {
       const maxSupportersNum = BigInt(maxSupporters);
 
       console.log("Creating match...");
-      console.log("Entry Margin:", entryMargin, "ETH");
+      console.log("Entry Margin:", entryMargin, "MON");
       console.log("Duration:", duration, "hours");
       console.log("Max Monachads:", maxMonachads);
       console.log("Max Supporters per Monachad:", maxSupporters);
@@ -187,7 +187,7 @@ export default function CreateMatchPage() {
                 <div className="space-y-8">
                   <div className="rounded-2xl border border-purple-500/20 bg-black/50 p-6 shadow-2xl transition-colors duration-200 hover:border-purple-400/30">
                     <label className="text-xs uppercase tracking-[0.35em] text-purple-300/70">
-                      Entry Margin (ETH)
+                      Entry Margin (MON)
                     </label>
                     <div className="mt-4 rounded-xl border border-purple-500/30 bg-black/70 px-4 py-3 focus-within:border-purple-400">
                       <input
@@ -352,7 +352,7 @@ export default function CreateMatchPage() {
                           Total Stake
                         </p>
                         <p className="text-lg font-semibold text-purple-100">
-                          {(parseFloat(entryMargin) + entryFee).toFixed(4)} ETH
+                          {(parseFloat(entryMargin) + entryFee).toFixed(4)} MON
                         </p>
                       </div>
                     </div>
@@ -361,13 +361,13 @@ export default function CreateMatchPage() {
                       <div className="flex items-center justify-between text-purple-100/80">
                         <span>Monachad entry margin</span>
                         <span className="font-semibold text-purple-50">
-                          {entryMargin} ETH
+                          {entryMargin} MON
                         </span>
                       </div>
                       <div className="flex items-center justify-between text-purple-100/80">
                         <span>Supporter fee (10%)</span>
                         <span className="font-semibold text-purple-50">
-                          {(parseFloat(entryMargin) * 0.1).toFixed(4)} ETH
+                          {(parseFloat(entryMargin) * 0.1).toFixed(4)} MON
                         </span>
                       </div>
                       <div className="flex items-center justify-between text-purple-100/80">
@@ -399,7 +399,7 @@ export default function CreateMatchPage() {
                       ? "Forging match on-chain..."
                       : `Ignite Arena • Stake ${(
                           parseFloat(entryMargin) + entryFee
-                        ).toFixed(4)} ETH`}
+                        ).toFixed(4)} MON`}
                     {!isCreating && (
                       <span className="text-sm uppercase tracking-[0.4em] text-purple-100/80">
                         →

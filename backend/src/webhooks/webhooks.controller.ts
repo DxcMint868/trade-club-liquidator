@@ -165,6 +165,42 @@ export class WebhooksController {
   }
 
   /**
+   * Debug endpoint: emit a single Monachad trade event via the app event bus
+   * Useful for local end-to-end testing without going through the external webhook provider.
+   */
+  @Post("debug/emit-monachad")
+  async debugEmitMonachad(@Body() payload: any) {
+    this.logger.log("Debug: emitting monachad.trade event", payload);
+
+    try {
+      this.eventEmitter.emit("monachad.trade", payload);
+      return { statusCode: HttpStatus.OK, message: "Event emitted" };
+    } catch (error) {
+      this.logger.error("Failed to emit debug monachad.trade", error);
+      return { statusCode: HttpStatus.INTERNAL_SERVER_ERROR, message: "Emit failed" };
+    }
+  }
+
+  /**
+   * Debug endpoint: emit a batch of Monachad trade events via the app event bus
+   */
+  @Post("debug/emit-monachad-batch")
+  async debugEmitMonachadBatch(@Body() payload: { trades: any[] }) {
+    this.logger.log("Debug: emitting monachad.batchTrades event", {
+      count: payload?.trades?.length ?? 0,
+    });
+
+    try {
+      const trades = payload?.trades ?? [];
+      this.eventEmitter.emit("monachad.batchTrades", trades);
+      return { statusCode: HttpStatus.OK, message: "Batch event emitted", count: trades.length };
+    } catch (error) {
+      this.logger.error("Failed to emit debug monachad.batchTrades", error);
+      return { statusCode: HttpStatus.INTERNAL_SERVER_ERROR, message: "Emit failed" };
+    }
+  }
+
+  /**
    * Handle trade opened - DEX agnostic
    * Finds active matches and delegates to copy-engine
    */
@@ -190,20 +226,60 @@ export class WebhooksController {
       return;
     }
 
-    this.logger.log(
-      `Found ${matches.length} active match(es) for copy-trading`
-    );
+    this.logger.log(`Found ${matches.length} active match(es) for copy-trading: ${matches.map(m=>m.matchId).join(',')}`);
+
+    // If the webhook provides an explicit matchId in metadata, prefer it (safer)
+    const preferredMatchId = payload.metadata?.matchId;
+    if (preferredMatchId) {
+      this.logger.log(`Webhook includes metadata.matchId=${preferredMatchId}, will emit only to that match if present`);
+    }
+
+    // Collect Monachad trade events for batch emit
+    const monachadTradeEvents = matches
+      .filter((match) => !preferredMatchId || String(match.matchId) === String(preferredMatchId))
+      .map((match) => ({
+        matchId: match.matchId,
+        monachadAddress: payload.monachadAddress,
+        tradeType: "OPEN",
+        dex: payload.metadata?.dex || "",
+        amount: payload.trade?.value || "",
+        positionType: payload.metadata?.positionType,
+        leverage: payload.metadata?.leverage,
+        assetId: payload.metadata?.assetId,
+        transactionHash: payload.metadata?.transactionHash || "",
+        timestamp: Date.now(),
+      }));
+
+    if (monachadTradeEvents.length === 0) {
+      this.logger.log(`No matching active matches after applying metadata.matchId filter (preferred=${preferredMatchId})`);
+    }
+
+    // Emit Monachad trade events to frontend
+    try {
+      this.logger.log("Emitting Monachad trade events to frontend");
+      if (monachadTradeEvents.length === 1) {
+        this.logger.log("Emitting single Monachad trade event (via event)");
+        this.eventEmitter.emit('monachad.trade', monachadTradeEvents[0]);
+      } else if (monachadTradeEvents.length > 1) {
+        this.logger.log("Emitting batch Monachad trade events (via event)");
+        this.eventEmitter.emit('monachad.batchTrades', monachadTradeEvents);
+      }
+    } catch (error) {
+      this.logger.error(
+        "WebhookController.handleTradeOpened: Failed to emit Monachad trade events",
+        error
+      );
+    }
 
     // Execute copy-trading for each match (copy-engine handles all the heavy lifting)
     for (const match of matches) {
       try {
         await this.copyEngine.executeCopyTrades({
           monachadAddress: payload.monachadAddress.toLowerCase(),
-          matchId: match.matchId, // Use matchId instead of id
+          matchId: match.matchId,
           originalTrade: payload.trade, // Pass through pre-encoded trade data
           metadata: payload.metadata,
         });
-
         this.logger.log(`Copy-trade executed for match ${match.matchId}`);
       } catch (error) {
         this.logger.error(
@@ -248,6 +324,48 @@ export class WebhooksController {
       `Found ${matches.length} active match(es), executing close trades`
     );
 
+
+    this.logger.log(`Found ${matches.length} active match(es) for close: ${matches.map(m=>m.matchId).join(',')}`);
+    const preferredMatchIdClose = payload.metadata?.matchId;
+    if (preferredMatchIdClose) {
+      this.logger.log(`Webhook includes metadata.matchId=${preferredMatchIdClose}, will emit only to that match if present`);
+    }
+
+    // Collect Monachad trade events for batch emit (close)
+    const monachadTradeEvents = matches
+      .filter((match) => !preferredMatchIdClose || String(match.matchId) === String(preferredMatchIdClose))
+      .map((match) => ({
+        matchId: match.matchId,
+        monachadAddress: payload.monachadAddress,
+        tradeType: "CLOSE",
+        dex: payload.metadata?.dex || "",
+        amount: payload.trade?.value || "",
+        positionType: payload.metadata?.positionType,
+        leverage: payload.metadata?.leverage,
+        assetId: payload.metadata?.assetId,
+        transactionHash: payload.metadata?.transactionHash || "",
+        timestamp: Date.now(),
+      }));
+
+    if (monachadTradeEvents.length === 0) {
+      this.logger.log(`No matching active matches after applying metadata.matchId filter (preferred=${preferredMatchIdClose})`);
+    }
+
+    try {
+      // Emit Monachad trade events to frontend via EventEmitter
+      this.logger.log("Emitting Monachad trade events to frontend");
+      if (monachadTradeEvents.length === 1) {
+        this.eventEmitter.emit('monachad.trade', monachadTradeEvents[0]);
+      } else if (monachadTradeEvents.length > 1) {
+        this.eventEmitter.emit('monachad.batchTrades', monachadTradeEvents);
+      }
+    } catch (error) {
+      this.logger.error(
+        "WebhookController.handleTradeClosed: Failed to emit Monachad trade events",
+        error
+      );
+    }
+
     // Execute close trades for each match
     for (const match of matches) {
       try {
@@ -257,7 +375,6 @@ export class WebhooksController {
           originalTrade: payload.trade, // Pass through pre-encoded close trade
           metadata: payload.metadata,
         });
-
         this.logger.log(`Close trade executed for match ${match.matchId}`);
       } catch (error) {
         this.logger.error(

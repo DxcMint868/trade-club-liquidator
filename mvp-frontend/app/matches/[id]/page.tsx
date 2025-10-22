@@ -191,14 +191,6 @@ export default function MatchDetailPage() {
     }
   }, [joinMode, match?.entryMargin, customMargin]);
 
-  // const participants = useMemo(() => match. ?? [], [match]);
-
-  // const supporters = useMemo(() => {
-  //   return participants.filter(
-  //     (participant) => participant.role === "SUPPORTER"
-  //   );
-  // }, [participants]);
-
   const supporterFollowingAddress = useMemo(() => {
     if (!address) {
       return undefined;
@@ -351,13 +343,6 @@ export default function MatchDetailPage() {
       return;
     }
 
-    const smartAccountAddr = localStorage.getItem(`smartAccount_${address}`);
-    if (!smartAccountAddr) {
-      alert("Please complete onboarding to create a smart account");
-      router.push("/onboarding");
-      return;
-    }
-
     if (!customMargin || Number.parseFloat(customMargin) <= 0) {
       alert("Enter the amount you want to stake");
       return;
@@ -406,7 +391,7 @@ export default function MatchDetailPage() {
 
       const hash = await walletClient.writeContract(simulation.request);
 
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      // const receipt = await publicClient.waitForTransactionReceipt({ hash });
 
       // await fetch(`${baseUrl}/matches/${matchId}/join-as-monachad`, {
       //   method: "POST",

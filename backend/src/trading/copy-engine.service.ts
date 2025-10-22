@@ -4,6 +4,10 @@ import { DatabaseService } from "../database/database.service";
 import { ContractService } from "../blockchain/contract.service";
 import { DelegationService } from "../delegation/delegation.service";
 import { TradingService } from "./trading.service";
+import {
+  MatchEventsGateway,
+  CopyTradeEvent,
+} from "../events/match-events.gateway";
 import { ParticipantRole, TradeType } from "@prisma/client";
 import {
   createPublicClient,
@@ -84,13 +88,15 @@ export class CopyEngineService implements OnModuleInit {
   private readonly knownExactCalldataEnforcers = new Set<Hex>([
     "0x99f2e9bf15ce5ec84685604836f71ab835dbbded" as Hex,
   ]);
+  private bundlerSmartAccountChecked: boolean = false;
 
   constructor(
     private db: DatabaseService,
     private contractService: ContractService,
     private delegationService: DelegationService,
     private tradingService: TradingService,
-    private configService: ConfigService
+    private configService: ConfigService,
+    private matchEventsGateway: MatchEventsGateway
   ) {
     this.rpcUrl = this.configService.get<string>(
       "RPC_URL",
@@ -128,6 +134,8 @@ export class CopyEngineService implements OnModuleInit {
       this.logger.warn(
         "BUNDLER_SIGNER_KEY is not configured; copy trades cannot be submitted"
       );
+    } else {
+      this.logger.log("BUNDLER_SIGNER_KEY loaded from configuration");
     }
   }
 
@@ -226,6 +234,10 @@ export class CopyEngineService implements OnModuleInit {
   }
 
   private async ensureBundlerSmartAccountDeployed(): Promise<void> {
+    if (this.bundlerSmartAccountChecked) {
+      return;
+    }
+
     const address = this.bundlerAccount.address as Hex;
     if (!this.bundlerAccount || !this.bundlerOwnerAccount) {
       const deployedCode = await this.publicClient.getCode({ address });
@@ -264,6 +276,7 @@ export class CopyEngineService implements OnModuleInit {
     }
 
     this.logger.log("Deploying bundler smart account before first use");
+    this.bundlerSmartAccountChecked = true;
 
     const balance = await this.publicClient.getBalance({
       address: this.bundlerOwnerAccount.address as Hex,
@@ -520,7 +533,7 @@ export class CopyEngineService implements OnModuleInit {
         );
       }
 
-      await this.ensureBundlerSmartAccountDeployed();
+      // await this.ensureBundlerSmartAccountDeployed(); // drastically slow things down
 
       const userOpHash = await this.bundlerClient.sendUserOperation({
         account: this.bundlerAccount as any,
@@ -571,6 +584,8 @@ export class CopyEngineService implements OnModuleInit {
     blockNumber: number,
     txHash: string
   ): Promise<void> {
+    const copyTradeEvents: CopyTradeEvent[] = [];
+
     for (const trade of batchTrades) {
       try {
         const delegation = trade.delegationRecord;
@@ -629,11 +644,31 @@ export class CopyEngineService implements OnModuleInit {
         this.logger.log(
           `✅ Recorded copy trade for ${supporter}: ${this.contractService.formatEther(trade.value)} ETH`
         );
+
+        // Prepare WebSocket event
+        copyTradeEvents.push({
+          matchId,
+          monachadAddress: delegation.monachad.toLowerCase(),
+          supporterAddress: supporter.toLowerCase(),
+          tradeType: "OPEN", // Can be determined from trade.data if needed
+          dex: trade.target,
+          amount: trade.value.toString(),
+          transactionHash: txHash,
+          timestamp: Date.now(),
+        });
       } catch (error) {
         this.logger.error(
           `Failed to record trade for ${trade.delegationRecord.supporter}: ${error.message}`
         );
       }
+    }
+
+    // Emit batch WebSocket events to all clients watching this match
+    if (copyTradeEvents.length > 0) {
+      this.matchEventsGateway.emitBatchCopyTrades(copyTradeEvents);
+      this.logger.log(
+        `📡 Emitted ${copyTradeEvents.length} copy trade events via WebSocket for match ${matchId}`
+      );
     }
   }
 
@@ -662,8 +697,8 @@ export class CopyEngineService implements OnModuleInit {
       enforcerAddresses.add(known.toLowerCase());
     }
 
-    const envExactCalldata = this.environment?.caveatEnforcers
-      ?.ExactCalldataEnforcer;
+    const envExactCalldata =
+      this.environment?.caveatEnforcers?.ExactCalldataEnforcer;
     if (typeof envExactCalldata === "string") {
       enforcerAddresses.add(envExactCalldata.toLowerCase());
     }
@@ -682,9 +717,7 @@ export class CopyEngineService implements OnModuleInit {
       }
 
       const terms =
-        typeof caveat.terms === "string"
-          ? caveat.terms.toLowerCase()
-          : "";
+        typeof caveat.terms === "string" ? caveat.terms.toLowerCase() : "";
 
       // Default ExactCalldata caveat enforces empty calldata, which blocks copy trades.
       return terms === "0x" || terms === "0x0";

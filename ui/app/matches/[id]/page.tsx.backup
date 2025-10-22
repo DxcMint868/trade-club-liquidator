@@ -1,24 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import dynamic from "next/dynamic";
+import { useAccount, usePublicClient, useWalletClient, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import {
   Implementation,
   createDelegation,
   toMetaMaskSmartAccount,
 } from "@metamask/delegation-toolkit";
-import { type Hex, parseEther } from "viem";
-import { MatchTradingView } from "@/components/matches/match-trading-view";
-import { MonachadProfileModal } from "@/components/matches/monachad-profile-modal";
-import { ChartViewOnly } from "@/components/matches/chart-view-only";
-import { BattleFeedPanel } from "@/components/matches/battle-feed-panel";
-import { useMatchEvents } from "@/hooks/use-match-events";
-import { safeFormatEther } from "@/utils/format";
-import { getMatchStatusDisplay } from "@/utils/display";
-import { match } from "assert/strict";
+import { formatEther, parseEther, encodeFunctionData, type Hex } from "viem";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const TradingChart = dynamic(() => import("@/components/trading-chart"), {
+  ssr: false,
+});
 
 type ParticipantRole = "MONACHAD" | "SUPPORTER";
 
@@ -62,6 +66,158 @@ interface DexMeta {
   description: string;
 }
 
+const initialAssets = [
+  { id: "BTC", name: "Bitcoin", apiId: "BTC", coinGeckoId: "bitcoin", imageUrl: "" },
+  { id: "ETH", name: "Ethereum", apiId: "ETH", coinGeckoId: "ethereum", imageUrl: "" },
+  { id: "SOL", name: "Solana", apiId: "SOL", coinGeckoId: "solana", imageUrl: "" },
+  { id: "LINK", name: "Chainlink", apiId: "LINK", coinGeckoId: "chainlink", imageUrl: "" },
+  { id: "MON", name: "Monad", apiId: "APT", coinGeckoId: "aptos", imageUrl: "/MONlogo.jpg" },
+];
+
+const KNOWN_DEXES: DexMeta[] = [
+  {
+    name: "FUNDex",
+    address: "0x16b0c1DCF87EBB4e0A0Ba4514FF0782CCE7889Cb",
+    logo: "🎲",
+    description: "Trade Club's perpetuals DEX",
+  },
+  {
+    name: "Uniswap v2",
+    address: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
+    logo: "🦄",
+    description: "Classic AMM",
+  },
+  {
+    name: "PancakeSwap",
+    address: "0x10ED43C718714eb63d5aA57B78B54704E256024E",
+    logo: "🥞",
+    description: "BNB Chain DEX",
+  },
+  {
+    name: "SushiSwap",
+    address: "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F",
+    logo: "🍣",
+    description: "Cross-chain AMM",
+  },
+];
+
+const FUNDEX_ABI = [
+  {
+    type: "function",
+    name: "openPosition",
+    stateMutability: "payable",
+    inputs: [
+      { name: "assetId", type: "uint256" },
+      { name: "positionType", type: "uint8" },
+      { name: "leverage", type: "uint256" },
+    ],
+    outputs: [],
+  },
+] as const;
+
+const MATCH_MANAGER_ABI = [
+  {
+    type: "function",
+    name: "monachadExecuteTrade",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_matchId", type: "uint256" },
+      { name: "_target", type: "address" },
+      { name: "_calldata", type: "bytes" },
+      { name: "_nativeAmount", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    inputs: [
+      { internalType: "uint256", name: "_matchId", type: "uint256" },
+    ],
+    name: "startMatch",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "uint256", name: "_matchId", type: "uint256" },
+    ],
+    name: "joinAsMonachad",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "uint256", name: "_matchId", type: "uint256" },
+      { internalType: "address", name: "_monachad", type: "address" },
+      {
+        internalType: "address payable",
+        name: "_smartAccountAddress",
+        type: "address",
+      },
+    ],
+    name: "followMonachadAndFundAccount",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
+  },
+] as const;
+
+const getIntervalInMilliseconds = (interval: string) => {
+  const unit = interval.slice(-1);
+  const value = parseInt(interval.slice(0, -1));
+  switch (unit) {
+    case "m":
+      return value * 60 * 1000;
+    case "H":
+      return value * 60 * 60 * 1000;
+    case "D":
+      return value * 24 * 60 * 60 * 1000;
+    default:
+      return 60 * 60 * 1000;
+  }
+};
+
+const formatPrice = (price: number) => {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(price);
+};
+
+const mockChartData = Array.from({ length: 12 }).map((_, index) => ({
+  label: `Round ${index + 1}`,
+  value: Math.round(50 + Math.random() * 50),
+}));
+
+const safeFormatEther = (value?: string | bigint | number | null) => {
+  try {
+    if (value === null || value === undefined) {
+      return "0";
+    }
+
+    if (typeof value === "bigint") {
+      return formatEther(value);
+    }
+
+    if (typeof value === "number") {
+      return formatEther(BigInt(Math.trunc(value)));
+    }
+
+    const normalized = value.toString();
+    if (!normalized.length) {
+      return "0";
+    }
+
+    return formatEther(BigInt(normalized));
+  } catch (error) {
+    console.warn("Failed to format wei to ether", error);
+    return "0";
+  }
+};
+
 const calculateRoi = (pnl?: string, basis?: string) => {
   try {
     const pnlEth = Number(safeFormatEther(pnl ?? "0"));
@@ -84,11 +240,6 @@ const getParticipantStakeWei = (participant?: Participant | null) => {
   return participant?.fundedAmount ?? "0";
 };
 
-const mockChartData = Array.from({ length: 12 }).map((_, index) => ({
-  label: `Round ${index + 1}`,
-  value: Math.round(50 + Math.random() * 50),
-}));
-
 export default function MatchDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -97,12 +248,6 @@ export default function MatchDetailPage() {
   const { address, isConnected, chain } = useAccount();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
-
-  // Contract addresses
-  const fundexAddress = "0x16b0c1DCF87EBB4e0A0Ba4514FF0782CCE7889Cb";
-  const matchManagerAddress =
-    process.env.NEXT_PUBLIC_MATCH_MANAGER_ADDRESS ||
-    "0x0000000000000000000000000000000000000000";
 
   const [match, setMatch] = useState<MatchRecord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -121,21 +266,27 @@ export default function MatchDetailPage() {
     null
   );
 
-  // Monachad profile modal
-  const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [selectedProfileAddress, setSelectedProfileAddress] = useState<
-    string | null
-  >(null);
+  // Trading state
+  const [positionType, setPositionType] = useState("long");
+  const [orderType, setOrderType] = useState("market");
+  const [selectedAsset, setSelectedAsset] = useState("BTC");
+  const [leverage, setLeverage] = useState(10);
+  const [amount, setAmount] = useState("");
+  const [price, setPrice] = useState("");
+  const [selectedDex, setSelectedDex] = useState("");
+  const [tradingError, setTradingError] = useState<string | null>(null);
 
-  const openMonachadProfile = (address: string) => {
-    setSelectedProfileAddress(address);
-    setProfileModalOpen(true);
-  };
+  // Chart state
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [timeInterval, setTimeInterval] = useState("1H");
+  const [assets, setAssets] = useState<any[]>([]);
+  const [assetsLoading, setAssetsLoading] = useState(true);
+  const seriesRef = useRef<any>(null);
 
-  const closeMonachadProfile = () => {
-    setProfileModalOpen(false);
-    setSelectedProfileAddress(null);
-  };
+  // Trading hooks
+  const { writeContract, data: tradeHash, isPending: isTradePending } = useWriteContract();
+  const { isLoading: isTradeConfirming, isSuccess: isTradeSuccess } =
+    useWaitForTransactionReceipt({ hash: tradeHash });
 
   const fetchMatchDetails = useCallback(async () => {
     if (!matchId) {
@@ -215,20 +366,6 @@ export default function MatchDetailPage() {
     return supporter?.followingAddress ?? undefined;
   }, [address, match?.topSupporters]);
 
-  // WebSocket for real-time copy trade updates
-  const {
-    allShadowTrades,
-    myShadowTrades,
-    allOriginalTrades,
-    myChadOriginalTrades,
-    isConnected: wsConnected,
-  } = useMatchEvents({
-    matchId,
-    userAddress: address,
-    followedMonachadAddress: supporterFollowingAddress,
-    enabled: match?.status === "ACTIVE", // Only connect when match is active
-  });
-
   const watchingLabel = useMemo(() => {
     if (selectedMonachad) {
       return `${selectedMonachad.slice(0, 8)}…${selectedMonachad.slice(-4)}`;
@@ -293,16 +430,11 @@ export default function MatchDetailPage() {
     if (!isCreated || userRole !== "MONACHAD") {
       return false;
     }
-    if (!match) return false;
 
-    const isCreator = match.creator?.toLowerCase() === address?.toLowerCase();
-    const moreThan1Chad = match.monachadCount >= 2;
-    return isCreator && moreThan1Chad;
+    return (match?.monachadCount ?? 0) >= 2;
   }, [isCreated, userRole, match?.monachadCount]);
 
-  const allowedDexes = useMemo(() => {
-    return match?.allowedDexes ?? [];
-  }, [match?.allowedDexes]);
+  const allowedDexes = match?.allowedDexes ?? [];
 
   const handleStartMatch = useCallback(async () => {
     if (!match) {
@@ -373,12 +505,8 @@ export default function MatchDetailPage() {
       return;
     }
 
-    const res = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL}/smart-account/check-deployment?ownerAddress=${address}`
-    );
-    const { isDeployed: isSmartAccountDeployed } = await res.json();
-    console.log("isSmartAccountDeployed", isSmartAccountDeployed);
-    if (!isSmartAccountDeployed) {
+    const smartAccountAddr = localStorage.getItem(`smartAccount_${address}`);
+    if (!smartAccountAddr) {
       alert("Please complete onboarding to create a smart account");
       router.push("/onboarding");
       return;
@@ -492,14 +620,9 @@ export default function MatchDetailPage() {
         return;
       }
 
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/smart-account/check-deployment?ownerAddress=${address}`
-      );
-      const { isDeployed: isSmartAccountDeployed, smartAccountAddress } =
-        await res.json();
-      console.log("isSmartAccountDeployed", isSmartAccountDeployed);
-      if (!isSmartAccountDeployed) {
-        alert("Please complete onboarding to create a smart account");
+      const smartAccountAddr = localStorage.getItem(`smartAccount_${address}`);
+      if (!smartAccountAddr) {
+        alert("Please onboard first to create a smart account");
         router.push("/onboarding");
         return;
       }
@@ -535,7 +658,7 @@ export default function MatchDetailPage() {
         const smartAccount = await toMetaMaskSmartAccount({
           client: publicClient,
           implementation: Implementation.Hybrid,
-          address: smartAccountAddress as Hex,
+          address: smartAccountAddr as Hex,
           signer: { walletClient },
         });
 
@@ -603,7 +726,7 @@ export default function MatchDetailPage() {
           args: [
             BigInt(match.matchId ?? matchId),
             monachadAddress as Hex,
-            smartAccountAddress as Hex,
+            smartAccountAddr as Hex,
           ],
           value: totalAmount,
         });
@@ -622,7 +745,7 @@ export default function MatchDetailPage() {
           body: JSON.stringify({
             supporterAddress: address.toLowerCase(),
             monachadAddress: monachadAddress.toLowerCase(),
-            smartAccountAddress: smartAccountAddress.toLowerCase(),
+            smartAccountAddress: smartAccountAddr.toLowerCase(),
             signedDelegation,
             entryFee: entryFeeAmount.toString(),
             fundedAmount: fundingAmount.toString(),
@@ -638,7 +761,7 @@ export default function MatchDetailPage() {
           `Successfully following Monachad ${monachadAddress.slice(
             0,
             8
-          )}... with ${customMargin} MON!`
+          )}... with ${customMargin} ETH!`
         );
         setJoinMode(null);
         setSelectedMonachad(null);
@@ -761,7 +884,7 @@ export default function MatchDetailPage() {
                   Match #{match.matchId ?? matchId}
                 </p>
                 <h1 className="text-3xl font-bold text-purple-300">
-                  {getMatchStatusDisplay(matchStatus)}
+                  {matchStatus} stage
                 </h1>
               </div>
               <span
@@ -785,7 +908,7 @@ export default function MatchDetailPage() {
                   Entry Margin
                 </p>
                 <p className="text-xl font-semibold text-blue-300">
-                  {entryMarginEth} MON
+                  {entryMarginEth} ETH
                 </p>
               </div>
               <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-4">
@@ -793,7 +916,7 @@ export default function MatchDetailPage() {
                   Prize Pool
                 </p>
                 <p className="text-xl font-semibold text-green-300">
-                  {safeFormatEther(match.prizePool)} MON
+                  {safeFormatEther(match.prizePool)} ETH
                 </p>
               </div>
               <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-4">
@@ -868,33 +991,8 @@ export default function MatchDetailPage() {
           </div>
 
           {isActive && (
-            <div className="space-y-6">
-              {/* Trading View - Full Width */}
-              {userRole === "MONACHAD" ? (
-                <MatchTradingView
-                  matchId={match.matchId ?? matchId}
-                  allowedDexes={allowedDexes}
-                  fundexAddress={fundexAddress}
-                  matchManagerAddress={matchManagerAddress}
-                  onTradeSuccess={fetchMatchDetails}
-                />
-              ) : (
-                <>
-                  <ChartViewOnly matchId={match.matchId ?? matchId} />
-
-                  {/* Battle Feed Panel - Real-time Chaos! */}
-                  <BattleFeedPanel
-                    allShadowTrades={allShadowTrades}
-                    myShadowTrades={myShadowTrades}
-                    allOriginalTrades={allOriginalTrades}
-                    myChadOriginalTrades={myChadOriginalTrades}
-                    isConnected={wsConnected}
-                  />
-                </>
-              )}
-
-              {/* Leaderboard and Stats Section */}
-              <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr),minmax(0,1fr)]">
+              <div className="space-y-6">
                 <div className="card bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900 border-purple-500/30">
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-2xl font-semibold text-white">
@@ -924,90 +1022,123 @@ export default function MatchDetailPage() {
                   </div>
                 </div>
 
-                <div className="space-y-6">
-                  <div className="card">
-                    <h3 className="text-xl font-semibold mb-4">Leaderboard</h3>
-                    <div className="space-y-3">
-                      {leaderboard.map((entry: any, index: number) => (
-                        <button
-                          key={entry.address ?? index}
-                          onClick={() => openMonachadProfile(entry.address)}
-                          className="w-full flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-4 py-3 hover:bg-white/10 hover:border-purple-500/40 transition-all cursor-pointer group"
-                        >
-                          <div className="flex items-center gap-3">
-                            <p className="text-sm text-gray-400">
-                              #{index + 1}
-                            </p>
-                            <div className="text-left">
-                              <p className="font-mono text-sm group-hover:text-purple-300 transition-colors">
-                                {entry.address?.slice(0, 8)}...
-                                {entry.address?.slice(-4)}
-                              </p>
-                              <p className="text-xs text-gray-500">
-                                Click to view profile
-                              </p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p
-                              className={`text-lg font-semibold ${
-                                (entry.roi ?? entry.pnl ?? "").startsWith("-")
-                                  ? "text-red-400"
-                                  : "text-green-400"
-                              }`}
-                            >
-                              {entry.roi ? `${entry.roi}%` : entry.pnl}
-                            </p>
-                            {entry.pnlEth && (
-                              <p className="text-xs text-gray-400">
-                                {entry.pnlEth} MON
-                              </p>
-                            )}
-                          </div>
-                        </button>
-                      ))}
+                {userRole === "MONACHAD" ? (
+                  <MatchTradingPanel
+                    matchId={match.matchId ?? matchId}
+                    allowedDexes={allowedDexes}
+                  />
+                ) : (
+                  <div className="card bg-slate-900/60 border border-slate-700/40 p-6 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <span className="text-3xl">🧭</span>
+                      <div>
+                        <h3 className="text-xl font-semibold text-white">
+                          Monachad Trading Terminal
+                        </h3>
+                        <p className="text-sm text-slate-400">
+                          Only competing Monachads can execute trades here.
+                          Follow along with live analytics while your chosen
+                          trader makes moves.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-lg border border-slate-700/60 bg-slate-800/40 p-4">
+                        <p className="text-xs uppercase tracking-wide text-slate-400">
+                          Watching
+                        </p>
+                        <p className="text-sm font-semibold text-white">
+                          {watchingLabel}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-slate-700/60 bg-slate-800/40 p-4">
+                        <p className="text-xs uppercase tracking-wide text-slate-400">
+                          Allowed DEXes
+                        </p>
+                        <p className="text-sm font-semibold text-white">
+                          {allowedDexes.length > 0
+                            ? `${allowedDexes.length} configured`
+                            : "Match is sandboxed"}
+                        </p>
+                      </div>
                     </div>
                   </div>
+                )}
+              </div>
 
-                  <div className="card">
-                    <h3 className="text-xl font-semibold mb-4">
-                      Supporter Feed
-                    </h3>
-                    {match?.supporterCount === 0 ? (
-                      <p className="text-sm text-gray-400">
-                        No supporters yet. The crowd is warming up.
-                      </p>
-                    ) : (
-                      <div className="space-y-3">
-                        {match.topSupporters.slice(0, 5).map((supporter) => (
-                          <div
-                            key={supporter.address}
-                            className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-4 py-3"
+              <div className="space-y-6">
+                <div className="card">
+                  <h3 className="text-xl font-semibold mb-4">Leaderboard</h3>
+                  <div className="space-y-3">
+                    {leaderboard.map((entry: any, index: number) => (
+                      <div
+                        key={entry.address ?? index}
+                        className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-4 py-3"
+                      >
+                        <div>
+                          <p className="text-sm text-gray-400">#{index + 1}</p>
+                          <p className="font-mono text-sm">
+                            {entry.address?.slice(0, 8)}...
+                            {entry.address?.slice(-4)}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p
+                            className={`text-lg font-semibold ${
+                              (entry.roi ?? entry.pnl ?? "").startsWith("-")
+                                ? "text-red-400"
+                                : "text-green-400"
+                            }`}
                           >
-                            <div>
-                              <p className="font-mono text-sm">
-                                {supporter.address.slice(0, 8)}...
-                                {supporter.address.slice(-4)}
-                              </p>
-                              <p className="text-xs text-gray-500">
-                                Following{" "}
-                                {supporter.followingAddress?.slice(0, 6)}…
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-xs text-gray-400">Margin</p>
-                              <p className="text-sm font-semibold">
-                                {safeFormatEther(
-                                  getParticipantStakeWei(supporter)
-                                )}{" "}
-                                MON
-                              </p>
-                            </div>
-                          </div>
-                        ))}
+                            {entry.roi ? `${entry.roi}%` : entry.pnl}
+                          </p>
+                          {entry.pnlEth && (
+                            <p className="text-xs text-gray-400">
+                              {entry.pnlEth} ETH
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    )}
+                    ))}
                   </div>
+                </div>
+
+                <div className="card">
+                  <h3 className="text-xl font-semibold mb-4">Supporter Feed</h3>
+                  {match?.supporterCount === 0 ? (
+                    <p className="text-sm text-gray-400">
+                      No supporters yet. The crowd is warming up.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {match.topSupporters.slice(0, 5).map((supporter) => (
+                        <div
+                          key={supporter.address}
+                          className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-4 py-3"
+                        >
+                          <div>
+                            <p className="font-mono text-sm">
+                              {supporter.address.slice(0, 8)}...
+                              {supporter.address.slice(-4)}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              Following{" "}
+                              {supporter.followingAddress?.slice(0, 6)}…
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-gray-400">Margin</p>
+                            <p className="text-sm font-semibold">
+                              {safeFormatEther(
+                                getParticipantStakeWei(supporter)
+                              )}{" "}
+                              ETH
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1026,7 +1157,7 @@ export default function MatchDetailPage() {
                     : "Final results have been recorded."}
                 </p>
                 <p className="text-sm text-gray-400">
-                  Prize Pool: {safeFormatEther(match.prizePool)} MON
+                  Prize Pool: {safeFormatEther(match.prizePool)} ETH
                 </p>
               </div>
             </div>
@@ -1047,7 +1178,7 @@ export default function MatchDetailPage() {
                   Compete as a trader. Your plays fuel the broadcast.
                 </p>
                 <ul className="text-sm text-gray-500 space-y-1">
-                  <li>• Stake at least {entryMarginEth} MON</li>
+                  <li>• Stake at least {entryMarginEth} ETH</li>
                   <li>• Battle for the prize pool</li>
                   <li>• Attract supporters</li>
                 </ul>
@@ -1070,7 +1201,7 @@ export default function MatchDetailPage() {
                   Copy their moves with your delegated smart account.
                 </p>
                 <ul className="text-sm text-gray-500 space-y-1">
-                  <li>• Pay {entryFee} MON entry fee</li>
+                  <li>• Pay {entryFee} ETH entry fee</li>
                   <li>• Fund your smart account</li>
                   <li>• Mirror trades automatically</li>
                 </ul>
@@ -1099,19 +1230,19 @@ export default function MatchDetailPage() {
               </div>
 
               <p className="text-gray-400 mb-6">
-                Minimum stake is {entryMarginEth} MON. Higher stakes increase
+                Minimum stake is {entryMarginEth} ETH. Higher stakes increase
                 the prize pool and send a signal to supporters.
               </p>
 
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Amount to Stake (MON)
+                  Amount to Stake (ETH)
                 </label>
                 <input
                   type="number"
                   step="0.001"
                   min={entryMarginEth}
-                  placeholder={`Minimum: ${entryMarginEth} MON`}
+                  placeholder={`Minimum: ${entryMarginEth} ETH`}
                   value={customMargin}
                   onChange={(event) => setCustomMargin(event.target.value)}
                   className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500 text-white"
@@ -1131,20 +1262,20 @@ export default function MatchDetailPage() {
                     Number.parseFloat(customMargin) <
                       Number.parseFloat(entryMarginEth)
                   }
-                  className="btn bg-purple-600 text-white rounded-full px-6 py-2 font-semibold shadow hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isJoining
                     ? "Joining…"
                     : `Join With ${
                         (parseFloat(customMargin) + entryFee).toFixed(4) || "?"
-                      } MON`}
+                      } ETH`}
                 </button>
                 <button
                   onClick={() => {
                     setJoinMode(null);
                     setCustomMargin("");
                   }}
-                  className="btn border border-gray-400 bg-gray-800 text-gray-200 rounded-full px-6 py-2 font-semibold hover:bg-gray-700 hover:border-gray-500 transition"
+                  className="btn bg-gray-700 hover:bg-gray-600"
                 >
                   Back
                 </button>
@@ -1171,7 +1302,7 @@ export default function MatchDetailPage() {
                 <div className="space-y-4">
                   <div className="flex justify-between">
                     <span className="text-gray-400">Entry Fee (10%)</span>
-                    <span className="font-semibold">{entryFee} MON</span>
+                    <span className="font-semibold">{entryFee} ETH</span>
                   </div>
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-gray-400">Smart Account Funding</span>
@@ -1194,7 +1325,7 @@ export default function MatchDetailPage() {
                             Number.parseFloat(customMargin)
                           ).toFixed(4)
                         : entryFee}{" "}
-                      MON
+                      ETH
                     </span>
                   </div>
                   <p className="text-xs text-gray-500">
@@ -1254,7 +1385,7 @@ export default function MatchDetailPage() {
                           <p className="text-gray-500">Staked</p>
                           <p>
                             {safeFormatEther(getParticipantStakeWei(monachad))}{" "}
-                            MON
+                            ETH
                           </p>
                         </div>
                         <div>
@@ -1266,7 +1397,7 @@ export default function MatchDetailPage() {
                                 : "text-green-400"
                             }
                           >
-                            {monachad.pnl} MON
+                            {monachad.pnl} ETH
                           </p>
                         </div>
                       </div>
@@ -1279,22 +1410,11 @@ export default function MatchDetailPage() {
                           !customMargin ||
                           Number.parseFloat(customMargin) <= 0
                         }
-                        className={`btn w-full rounded-lg font-semibold text-white px-6 py-3 transition-all
-                            bg-gradient-to-r from-purple-600 via-purple-500 to-purple-700
-                            shadow-lg shadow-purple-900/20
-                            hover:from-purple-700 hover:to-purple-800 hover:scale-[1.03]
-                            disabled:opacity-50 disabled:cursor-not-allowed`}
-                        style={{
-                          boxShadow: "0 2px 8px 0 rgba(128, 90, 213, 0.15)",
-                          fontSize: "1.1rem",
-                          letterSpacing: "0.02em",
-                        }}
+                        className="btn btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        {isJoining && selectedMonachad === monachad.address ? (
-                          "Following…"
-                        ) : (
-                          <>Follow This Monachad</>
-                        )}
+                        {isJoining && selectedMonachad === monachad.address
+                          ? "Following…"
+                          : "Follow This Monachad"}
                       </button>
                     </div>
                   ))}
@@ -1308,24 +1428,24 @@ export default function MatchDetailPage() {
               <h3 className="text-2xl font-bold mb-4">Competing Monachads</h3>
               <div className="space-y-4">
                 {match?.topMonachads.map((monachad, index) => (
-                  <button
+                  <div
                     key={monachad.address}
-                    onClick={() => openMonachadProfile(monachad.address)}
-                    className="w-full flex items-center justify-between p-4 bg-gray-800/50 rounded-lg hover:bg-gray-800/80 hover:border hover:border-purple-500/40 transition-all cursor-pointer group"
+                    className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg"
                   >
                     <div className="flex items-center gap-4">
                       <div className="text-2xl font-bold text-gray-500">
                         #{index + 1}
                       </div>
-                      <div className="text-left">
-                        <p className="font-mono font-semibold group-hover:text-purple-300 transition-colors">
+                      <div>
+                        <p className="font-mono font-semibold">
                           {monachad.address.slice(0, 8)}...
                           {monachad.address.slice(-6)}
                         </p>
                         <p className="text-sm text-gray-500">
+                          Joined{" "}
                           {monachad.joinedAt
                             ? new Date(monachad.joinedAt).toLocaleDateString()
-                            : "Click to view profile"}
+                            : "–"}
                         </p>
                       </div>
                     </div>
@@ -1339,7 +1459,7 @@ export default function MatchDetailPage() {
                               : "text-green-400"
                           }`}
                         >
-                          {monachad.pnl} MON
+                          {monachad.pnl} ETH
                         </p>
                       </div>
                       <div className="text-right">
@@ -1366,22 +1486,13 @@ export default function MatchDetailPage() {
                         </p>
                       </div>
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>
           )}
         </div>
       </div>
-
-      {/* Monachad Profile Modal */}
-      {selectedProfileAddress && (
-        <MonachadProfileModal
-          address={selectedProfileAddress}
-          isOpen={profileModalOpen}
-          onClose={closeMonachadProfile}
-        />
-      )}
     </main>
   );
 }

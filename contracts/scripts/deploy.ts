@@ -8,7 +8,7 @@ async function main() {
   console.log("Deploying contracts with account:", deployer.address);
   console.log("Account balance:", (await ethers.provider.getBalance(deployer.address)).toString());
 
-  // 1. Deploy TradeClubToken
+  // // 1. Deploy TradeClubToken
   // console.log("\n1. Deploying GovernanceToken...");
   // const GovernanceToken = await ethers.getContractFactory("TradeClub_GovernanceToken");
   // const govToken = await GovernanceToken.deploy();
@@ -16,7 +16,16 @@ async function main() {
   // const govTokenAddress = await govToken.getAddress();
   // console.log("GovernanceToken deployed to:", govTokenAddress);
 
-  // 2. Deploy MatchManager
+  // // 2. Deploy FUNDex
+  // console.log("\n2. Deploying FUNDex...");
+  // const FUNDex = await ethers.getContractFactory("FUNDex");
+  // const fundex = await FUNDex.deploy();
+  // await fundex.waitForDeployment();
+  // const fundexAddress = await fundex.getAddress();
+  // console.log("FUNDex deployed to:", fundexAddress);
+  // await tryVerifyContractOnExplorer(fundexAddress, [], 1);
+
+  // 3. Deploy MatchManager
   console.log("\n2. Deploying MatchManager...");
   const MatchManager = await ethers.getContractFactory("TradeClub_MatchManager");
   const matchManager = await MatchManager.deploy();
@@ -42,21 +51,12 @@ async function main() {
     "FUNDex.closePosition"
   );
   console.log("Finished setting allowed DEX functions.");
-  await tryVerifyContractOnExplorer(matchManagerAddress, [], 1);
-
-  // // 3. Deploy FUNDex
-  // console.log("\n3. Deploying FUNDex...");
-  // const FUNDex = await ethers.getContractFactory("FUNDex");
-  // const fundex = await FUNDex.deploy();
-  // await fundex.waitForDeployment();
-  // const fundexAddress = await fundex.getAddress();
-  // console.log("FUNDex deployed to:", fundexAddress);
-  // await tryVerifyContractOnExplorer(fundexAddress, [], 1);
+  // await tryVerifyContractOnExplorer(matchManagerAddress, [], 1);
 
   // 4. Deploy BribePool
   // console.log("\n4. Deploying BribePool...");
   // const BribePool = await ethers.getContractFactory("TradeClub_BribePool");
-  // const bribePool = await BribePool.deploy(govTokenAddress);
+  // const bribePool = await BribePool.deploy(govTo);
   // await bribePool.waitForDeployment();
   // const bribePoolAddress = await bribePool.getAddress();
   // console.log("BribePool deployed to:", bribePoolAddress);
@@ -84,7 +84,7 @@ async function main() {
     contracts: {
       // TradeClubToken: govTokenAddress,
       MatchManager: matchManagerAddress,
-      FUNDex: fundexAddress,
+      // FUNDex: fundexAddress,
       // BribePool: bribePoolAddress,
     },
   };
