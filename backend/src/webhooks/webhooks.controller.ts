@@ -246,6 +246,11 @@ export class WebhooksController {
         positionType: payload.metadata?.positionType,
         leverage: payload.metadata?.leverage,
         assetId: payload.metadata?.assetId,
+        positionId: payload.metadata?.positionId,
+        collateral: payload.metadata?.collateral,
+        size: payload.metadata?.size,
+        entryPrice: payload.metadata?.entryPrice,
+        matchVaultAddress: payload.metadata?.matchVaultAddress,
         transactionHash: payload.metadata?.transactionHash || "",
         timestamp: Date.now(),
       }));
@@ -343,6 +348,10 @@ export class WebhooksController {
         positionType: payload.metadata?.positionType,
         leverage: payload.metadata?.leverage,
         assetId: payload.metadata?.assetId,
+        positionId: payload.metadata?.monachadPositionId,
+        exitPrice: payload.metadata?.exitPrice,
+        pnl: payload.metadata?.pnl,
+        matchVaultAddress: payload.metadata?.matchVaultAddress,
         transactionHash: payload.metadata?.transactionHash || "",
         timestamp: Date.now(),
       }));
