@@ -163,9 +163,14 @@ FUNDex.PositionOpened.handler(async ({ event, context }) => {
         positionId: event.params.positionId.toString(),
         assetId: event.params.assetId.toString(),
         positionType: event.params.positionType,
+        positionTypeLabel: Number(event.params.positionType) === 0 ? "LONG" : "SHORT",
+        collateral: event.params.collateral.toString(),
+        size: event.params.size.toString(),
         leverage: event.params.leverage.toString(),
+        entryPrice: event.params.entryPrice.toString(),
         transactionHash: event.transaction.hash,
         matchId: vaultContext.matchId,
+        matchVaultAddress: vaultContext.matchVaultAddress,
         sizeToPortfolioBps: sizeToPortfolioBps?.toString(),
       },
     });
@@ -262,6 +267,7 @@ FUNDex.PositionClosed.handler(async ({ event, context }) => {
         pnl: event.params.pnl.toString(),
         transactionHash: event.transaction.hash,
         matchId: vaultContext.matchId,
+        matchVaultAddress: vaultContext.matchVaultAddress,
         sizeToPortfolioBps: sizeToPortfolioBps?.toString(),
       },
     });

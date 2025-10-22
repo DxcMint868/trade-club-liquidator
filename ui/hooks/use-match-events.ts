@@ -13,6 +13,12 @@ export interface CopyTradeEvent {
   positionType?: "LONG" | "SHORT";
   leverage?: string;
   assetId?: string;
+  positionId?: string;
+  collateral?: string;
+  size?: string;
+  entryPrice?: string;
+  exitPrice?: string;
+  pnl?: string;
   transactionHash: string;
   timestamp: number;
 }
@@ -26,6 +32,13 @@ export interface OriginalTradeEvent {
   positionType?: "LONG" | "SHORT";
   leverage?: string;
   assetId?: string;
+  positionId?: string;
+  collateral?: string;
+  size?: string;
+  entryPrice?: string;
+  exitPrice?: string;
+  pnl?: string;
+  matchVaultAddress?: string;
   transactionHash: string;
   timestamp: number;
 }

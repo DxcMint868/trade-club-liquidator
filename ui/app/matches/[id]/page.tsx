@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
@@ -14,6 +15,7 @@ import { type Hex, parseEther } from "viem";
 import { MatchTradingView } from "@/components/matches/match-trading-view";
 import { MonachadProfileModal } from "@/components/matches/monachad-profile-modal";
 import { ChartViewOnly } from "@/components/matches/chart-view-only";
+import { LivePositionsPanel } from "@/components/matches/live-positions-panel";
 import { BattleFeedPanel } from "@/components/matches/battle-feed-panel";
 import { useMatchEvents } from "@/hooks/use-match-events";
 import { safeFormatEther } from "@/utils/format";
@@ -260,6 +262,27 @@ export default function MatchDetailPage() {
     }
     return base * 0.1;
   }, [entryMarginEth]);
+
+  const hasMonachads = (match?.monachadCount ?? 0) > 0;
+
+  const monachadTotalCommitment = useMemo(() => {
+    if (!customMargin) {
+      return null;
+    }
+    const parsed = Number.parseFloat(customMargin);
+    if (!Number.isFinite(parsed)) {
+      return null;
+    }
+    return (parsed + entryFee).toFixed(4);
+  }, [customMargin, entryFee]);
+
+  const supporterTotalCommitment = useMemo(() => {
+    const parsed = Number.parseFloat(customMargin || "0");
+    if (!customMargin || !Number.isFinite(parsed)) {
+      return entryFee.toFixed(3);
+    }
+    return (parsed + entryFee).toFixed(4);
+  }, [customMargin, entryFee]);
 
   useEffect(() => {
     if (!address || !matchId) {
@@ -893,6 +916,15 @@ export default function MatchDetailPage() {
                 </>
               )}
 
+              <LivePositionsPanel
+                matchId={match.matchId ?? matchId}
+                fundexAddress={fundexAddress}
+                matchManagerAddress={matchManagerAddress}
+                matchBlockNumber={match?.blockNumber ? Number(match.blockNumber) : undefined}
+                isMonachad={userRole === "MONACHAD"}
+                followedMonachadAddress={supporterFollowingAddress ?? null}
+              />
+
               {/* Leaderboard and Stats Section */}
               <div className="grid gap-6 lg:grid-cols-2">
                 <div className="card bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900 border-purple-500/30">
@@ -1033,26 +1065,48 @@ export default function MatchDetailPage() {
           )}
 
           {isCreated && !joinMode && isConnected && (
-            <div className="grid md:grid-cols-2 gap-6">
+            <div className="grid gap-6 md:grid-cols-2">
               <button
                 onClick={() => {
                   setJoinMode("monachad");
                   setCustomMargin(safeFormatEther(match.entryMargin));
                 }}
-                className="card hover:border-blue-500 transition-all text-left p-8"
+                className="relative overflow-hidden rounded-3xl border border-blue-500/30 bg-gradient-to-br from-slate-900 via-slate-900/60 to-blue-950/60 p-8 text-left shadow-[0_0_25px_-12px_rgba(56,189,248,0.75)] transition-all duration-300 ease-out hover:-translate-y-1 hover:border-blue-400/70 hover:shadow-[0_0_50px_-18px_rgba(56,189,248,0.95)]"
               >
-                <div className="text-4xl mb-4">🎯</div>
-                <h3 className="text-2xl font-bold mb-2">Join as Monachad</h3>
-                <p className="text-gray-400 mb-4">
-                  Compete as a trader. Your plays fuel the broadcast.
-                </p>
-                <ul className="text-sm text-gray-500 space-y-1">
-                  <li>• Stake at least {entryMarginEth} MON</li>
-                  <li>• Battle for the prize pool</li>
-                  <li>• Attract supporters</li>
-                </ul>
-                <div className="mt-4 text-blue-400 font-semibold">
-                  Continue →
+                <div className="pointer-events-none absolute -right-4 -top-6 h-40 w-40 opacity-90 md:h-48 md:w-48">
+                  <Image
+                    src="/monachad2.png"
+                    alt="Monachad meme"
+                    width={220}
+                    height={220}
+                    className="h-full w-full object-contain drop-shadow-[0_8px_16px_rgba(56,189,248,0.45)]"
+                  />
+                </div>
+                <div className="pointer-events-none absolute -left-20 top-10 h-56 w-56 rounded-full bg-blue-500/10 blur-3xl" />
+                <div className="relative flex h-full flex-col gap-6">
+                  <span className="inline-flex w-fit items-center gap-2 rounded-full border border-blue-500/40 bg-blue-500/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-blue-200/80">
+                    🧠 Chad Brain Mode
+                  </span>
+                  <div>
+                    <h3 className="text-3xl font-black text-blue-100 drop-shadow">Become the Signal</h3>
+                    <p className="mt-2 max-w-sm text-sm text-slate-300/90">
+                      Stake hard, swing harder. Every winning play beams across Monachad TV and summons your loyal pepes.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-xs text-slate-300/80">
+                    <div className="rounded-xl border border-blue-500/30 bg-slate-900/60 px-4 py-3">
+                      <p className="text-[0.6rem] uppercase tracking-[0.2em] text-blue-300/70">Min Stake</p>
+                      <p className="mt-1 text-lg font-bold text-blue-100">{entryMarginEth} MON</p>
+                    </div>
+                    <div className="rounded-xl border border-blue-500/30 bg-slate-900/60 px-4 py-3">
+                      <p className="text-[0.6rem] uppercase tracking-[0.2em] text-blue-300/70">Entry Flex</p>
+                      <p className="mt-1 text-lg font-bold text-blue-100">Tx + hype</p>
+                    </div>
+                  </div>
+                  <div className="mt-auto inline-flex items-center gap-2 text-sm font-semibold text-blue-200">
+                    Launch the raid
+                    <span className="text-xl">🚀</span>
+                  </div>
                 </div>
               </button>
 
@@ -1061,241 +1115,336 @@ export default function MatchDetailPage() {
                   setJoinMode("supporter");
                   setCustomMargin("");
                 }}
-                className="card hover:border-purple-500 transition-all text-left p-8"
-                disabled={(match?.monachadCount ?? 0) === 0}
+                className={`relative overflow-hidden rounded-3xl border border-purple-500/30 bg-gradient-to-br from-slate-900 via-slate-900/60 to-purple-950/70 p-8 text-left shadow-[0_0_25px_-12px_rgba(168,85,247,0.65)] transition-all duration-300 ease-out hover:-translate-y-1 hover:border-purple-400/80 hover:shadow-[0_0_50px_-18px_rgba(168,85,247,0.95)] ${
+                  !hasMonachads ? "cursor-not-allowed opacity-70" : ""
+                }`}
+                disabled={!hasMonachads}
               >
-                <div className="text-4xl mb-4">👥</div>
-                <h3 className="text-2xl font-bold mb-2">Follow a Monachad</h3>
-                <p className="text-gray-400 mb-4">
-                  Copy their moves with your delegated smart account.
-                </p>
-                <ul className="text-sm text-gray-500 space-y-1">
-                  <li>• Pay {entryFee} MON entry fee</li>
-                  <li>• Fund your smart account</li>
-                  <li>• Mirror trades automatically</li>
-                </ul>
-                <div className="mt-4 text-purple-400 font-semibold">
-                  {match?.monachadCount ?? 0 === 0
-                    ? "Waiting for Monachads..."
-                    : "Choose a trader →"}
+                <div className="pointer-events-none absolute -right-6 -top-10 h-48 w-48 md:-right-2 md:h-56 md:w-56">
+                  <Image
+                    src="/pepemon4.png"
+                    alt="Pepe supporter"
+                    width={240}
+                    height={240}
+                    className="h-full w-full object-contain drop-shadow-[0_10px_18px_rgba(192,132,252,0.5)]"
+                  />
+                </div>
+                <div className="pointer-events-none absolute -left-16 bottom-6 h-56 w-56 rounded-full bg-purple-500/10 blur-3xl" />
+                <div className="relative flex h-full flex-col gap-6">
+                  <span className="inline-flex w-fit items-center gap-2 rounded-full border border-purple-500/40 bg-purple-500/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-purple-200/80">
+                    � Copytrader Squad
+                  </span>
+                  <div>
+                    <h3 className="text-3xl font-black text-purple-100 drop-shadow">Follow a Monachad</h3>
+                    <p className="mt-2 max-w-sm text-sm text-slate-200/80">
+                      Strap in, delegate the smart account, and vibe as your chosen Chad prints on-chain glory for the culture.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-xs text-slate-200/80">
+                    <div className="rounded-xl border border-purple-500/30 bg-slate-900/60 px-4 py-3">
+                      <p className="text-[0.6rem] uppercase tracking-[0.2em] text-purple-300/70">Entry Fee</p>
+                      <p className="mt-1 text-lg font-bold text-purple-100">{entryFee.toFixed(3)} MON</p>
+                    </div>
+                    <div className="rounded-xl border border-purple-500/30 bg-slate-900/60 px-4 py-3">
+                      <p className="text-[0.6rem] uppercase tracking-[0.2em] text-purple-300/70">Mirror Mode</p>
+                      <p className="mt-1 text-lg font-bold text-purple-100">Auto-Yeet</p>
+                    </div>
+                  </div>
+                  <div className="mt-auto inline-flex items-center gap-2 text-sm font-semibold text-purple-200">
+                    {hasMonachads ? "Pick your captain" : "Waiting for Chads"}
+                    <span className="text-xl">✨</span>
+                  </div>
                 </div>
               </button>
             </div>
           )}
 
           {isCreated && joinMode === "monachad" && (
-            <div className="card">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-2xl font-bold">Stake & Compete</h3>
-                <button
-                  onClick={() => {
-                    setJoinMode(null);
-                    setCustomMargin("");
-                  }}
-                  className="text-gray-400 hover:text-white"
-                >
-                  Cancel
-                </button>
-              </div>
-
-              <p className="text-gray-400 mb-6">
-                Minimum stake is {entryMarginEth} MON. Higher stakes increase
-                the prize pool and send a signal to supporters.
-              </p>
-
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Amount to Stake (MON)
-                </label>
-                <input
-                  type="number"
-                  step="0.001"
-                  min={entryMarginEth}
-                  placeholder={`Minimum: ${entryMarginEth} MON`}
-                  value={customMargin}
-                  onChange={(event) => setCustomMargin(event.target.value)}
-                  className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-blue-500 text-white"
+            <div className="relative overflow-hidden rounded-3xl border border-blue-500/30 bg-gradient-to-br from-[#0a1020] via-slate-900/90 to-blue-950/70 p-8 shadow-[0_0_40px_-18px_rgba(59,130,246,0.6)] md:p-10">
+              <div className="pointer-events-none absolute -right-6 bottom-0 hidden h-60 w-60 rotate-6 opacity-90 sm:block">
+                <Image
+                  src="/monachad1.png"
+                  alt="Monachad flex"
+                  width={300}
+                  height={300}
+                  className="h-full w-full object-contain drop-shadow-[0_18px_35px_rgba(56,189,248,0.45)]"
                 />
-                <p className="text-xs text-gray-500 mt-2">
-                  💡 Bigger stakes increase the prize pool and your supporters'
-                  confidence.
-                </p>
               </div>
+              <div className="pointer-events-none absolute -left-24 top-0 h-72 w-72 rounded-full bg-blue-500/15 blur-3xl" />
 
-              <div className="flex gap-4">
-                <button
-                  onClick={joinAsMonachad}
-                  disabled={
-                    isJoining ||
-                    !customMargin ||
-                    Number.parseFloat(customMargin) <
-                      Number.parseFloat(entryMarginEth)
-                  }
-                  className="btn bg-purple-600 text-white rounded-full px-6 py-2 font-semibold shadow hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isJoining
-                    ? "Joining…"
-                    : `Join With ${
-                        (parseFloat(customMargin) + entryFee).toFixed(4) || "?"
-                      } MON`}
-                </button>
-                <button
-                  onClick={() => {
-                    setJoinMode(null);
-                    setCustomMargin("");
-                  }}
-                  className="btn border border-gray-400 bg-gray-800 text-gray-200 rounded-full px-6 py-2 font-semibold hover:bg-gray-700 hover:border-gray-500 transition"
-                >
-                  Back
-                </button>
+              <div className="relative space-y-8">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <span className="inline-flex items-center gap-2 rounded-full border border-blue-500/40 bg-blue-500/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.35em] text-blue-200/80">
+                      🪙 You Are The Chad
+                    </span>
+                    <h3 className="mt-3 text-3xl font-black text-blue-100 drop-shadow">Stake &amp; Compete</h3>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setJoinMode(null);
+                      setCustomMargin("");
+                    }}
+                    className="rounded-full border border-transparent bg-slate-900/60 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:border-blue-400/40 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                </div>
+
+                <p className="max-w-2xl text-sm leading-relaxed text-slate-300/85">
+                  Minimum stake is {entryMarginEth} MON. Send a bigger bag to amplify
+                  the prize pool, flex dominance on stream, and magnetize the supporter swarm.
+                </p>
+
+                <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_240px]">
+                  <div>
+                    <label className="text-xs font-semibold uppercase tracking-[0.3em] text-blue-200/70">
+                      Amount to Stake (MON)
+                    </label>
+                    <div className="relative mt-3">
+                      <input
+                        type="number"
+                        step="0.001"
+                        min={entryMarginEth}
+                        placeholder={`Minimum: ${entryMarginEth} MON`}
+                        value={customMargin}
+                        onChange={(event) => setCustomMargin(event.target.value)}
+                        className="w-full rounded-2xl border border-blue-500/30 bg-slate-900/80 px-4 py-4 text-lg font-semibold text-blue-100 shadow-inner shadow-blue-900/40 outline-none transition focus:border-blue-400 focus:bg-slate-900"
+                      />
+                      <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-semibold uppercase tracking-[0.3em] text-blue-200/70">
+                        MON
+                      </span>
+                    </div>
+                    <p className="mt-3 text-xs text-slate-400">
+                      💡 Bigger stakes turbocharge the prize pool and broadcast your entry to every lurking Pepe.
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-5 text-blue-100">
+                    <p className="text-[0.65rem] uppercase tracking-[0.35em] text-blue-100/70">
+                      Total Commitment
+                    </p>
+                    <p className="mt-3 text-3xl font-black">
+                      {monachadTotalCommitment ?? "?.????"} MON
+                    </p>
+                    <p className="mt-2 text-xs text-blue-100/70">
+                      Includes the 10% entry fee ({entryFee.toFixed(3)} MON) destined for the prize pool.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-4">
+                  <button
+                    onClick={joinAsMonachad}
+                    disabled={
+                      isJoining ||
+                      !customMargin ||
+                      Number.parseFloat(customMargin) <
+                        Number.parseFloat(entryMarginEth)
+                    }
+                    className="inline-flex items-center gap-3 rounded-full bg-gradient-to-r from-blue-500 via-violet-500 to-purple-600 px-8 py-3 text-base font-semibold text-white shadow-lg shadow-blue-900/40 transition duration-200 hover:scale-[1.02] hover:shadow-blue-900/50 disabled:scale-100 disabled:opacity-40"
+                  >
+                    {isJoining ? "Summoning…" : `Join With ${monachadTotalCommitment ?? "?"} MON`}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setJoinMode(null);
+                      setCustomMargin("");
+                    }}
+                    className="rounded-full border border-blue-500/30 bg-slate-900/70 px-6 py-3 text-sm font-semibold text-blue-200 transition hover:border-blue-400/50 hover:text-white"
+                  >
+                    Back
+                  </button>
+                  <span className="text-xs font-semibold tracking-[0.25em] text-blue-200/60">
+                    📡 Chad transmissions go instant once you lock in.
+                  </span>
+                </div>
               </div>
             </div>
           )}
 
           {isCreated && joinMode === "supporter" && (
             <div className="space-y-6">
-              <div className="card">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-2xl font-bold">Choose a Monachad</h3>
-                  <button
-                    onClick={() => {
-                      setJoinMode(null);
-                      setCustomMargin("");
-                    }}
-                    className="text-gray-400 hover:text-white"
-                  >
-                    Cancel
-                  </button>
+              <div className="relative overflow-hidden rounded-3xl border border-purple-500/30 bg-gradient-to-br from-[#120b1f] via-slate-900/90 to-purple-950/75 p-8 shadow-[0_0_40px_-20px_rgba(168,85,247,0.75)] md:p-10">
+                <div className="pointer-events-none absolute -right-6 top-0 hidden h-60 w-60 opacity-80 md:block">
+                  <Image
+                    src="/pepemon3.png"
+                    alt="Supporter pepe"
+                    width={300}
+                    height={300}
+                    className="h-full w-full object-contain drop-shadow-[0_18px_30px_rgba(168,85,247,0.45)]"
+                  />
                 </div>
+                <div className="pointer-events-none absolute -left-24 bottom-0 h-72 w-72 rounded-full bg-purple-500/15 blur-3xl" />
 
-                <div className="space-y-4">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Entry Fee (10%)</span>
-                    <span className="font-semibold">{entryFee} MON</span>
+                <div className="relative space-y-8">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <span className="inline-flex items-center gap-2 rounded-full border border-purple-500/40 bg-purple-500/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.35em] text-purple-200/80">
+                        🐸 Copytrade Ritual
+                      </span>
+                      <h3 className="mt-3 text-3xl font-black text-purple-100 drop-shadow">
+                        Choose a Monachad
+                      </h3>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setJoinMode(null);
+                        setCustomMargin("");
+                      }}
+                      className="rounded-full border border-transparent bg-slate-900/60 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:border-purple-400/40 hover:text-white"
+                    >
+                      Cancel
+                    </button>
                   </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="text-gray-400">Smart Account Funding</span>
-                    <input
-                      type="number"
-                      step="0.001"
-                      min="0.001"
-                      placeholder="e.g., 0.1"
-                      value={customMargin}
-                      onChange={(event) => setCustomMargin(event.target.value)}
-                      className="w-32 px-3 py-1 bg-gray-800 border border-gray-700 rounded focus:outline-none focus:border-purple-500 text-white text-right"
-                    />
+
+                  <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_220px]">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between rounded-2xl border border-purple-500/20 bg-purple-500/5 px-4 py-4 text-sm text-purple-100">
+                        <span className="uppercase tracking-[0.3em] text-purple-200/75">
+                          Entry Fee (10%)
+                        </span>
+                        <span className="text-xl font-bold">{entryFee.toFixed(3)} MON</span>
+                      </div>
+                      <div className="rounded-2xl border border-purple-500/20 bg-slate-900/80 px-4 py-4">
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-xs font-semibold uppercase tracking-[0.3em] text-purple-200/70">
+                            Smart Account Funding
+                          </span>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              step="0.001"
+                              min="0.001"
+                              placeholder="e.g., 0.1"
+                              value={customMargin}
+                              onChange={(event) => setCustomMargin(event.target.value)}
+                              className="w-32 rounded-xl border border-purple-500/30 bg-slate-900 px-3 py-2 text-right text-base font-semibold text-purple-100 outline-none transition focus:border-purple-400"
+                            />
+                            <span className="pointer-events-none absolute -bottom-5 left-0 text-[0.6rem] uppercase tracking-[0.3em] text-purple-300/60">
+                              MON
+                            </span>
+                          </div>
+                        </div>
+                        <p className="mt-4 text-xs text-purple-200/70">
+                          Fuel this buffer so your smart account can instantly mirror Chad trades without missing the pump.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-purple-400/30 bg-purple-500/10 p-5 text-purple-100">
+                      <p className="text-[0.65rem] uppercase tracking-[0.35em] text-purple-100/70">
+                        Total Commitment
+                      </p>
+                      <p className="mt-3 text-3xl font-black">{supporterTotalCommitment} MON</p>
+                      <p className="mt-2 text-xs text-purple-100/70">
+                        Entry feeds the prize pool. Funding sticks with your smart account to follow every move.
+                      </p>
+                    </div>
                   </div>
-                  <div className="border-t border-gray-700 pt-3 flex justify-between text-lg font-bold">
-                    <span>Total Commitment</span>
-                    <span className="text-purple-400">
-                      {customMargin
-                        ? (
-                            Number.parseFloat(entryFee.toString()) +
-                            Number.parseFloat(customMargin)
-                          ).toFixed(4)
-                        : entryFee}{" "}
-                      MON
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    Entry fee goes to the prize pool. Funding amount fuels your
-                    smart account for mirrored trades.
-                  </p>
                 </div>
               </div>
 
-              {match?.monachadCount === 0 ? (
-                <div className="card">
-                  <p className="text-gray-400">
-                    No Monachads competing yet. Be the first to join!
+              {!hasMonachads ? (
+                <div className="relative overflow-hidden rounded-3xl border border-dashed border-purple-500/40 bg-slate-900/80 p-10 text-center">
+                  <div className="text-5xl">🕯️</div>
+                  <p className="mt-4 text-sm text-purple-200/70">
+                    Summon a Monachad first—no one is battling yet. Signal the arena by joining as a Chad above.
                   </p>
                 </div>
               ) : (
-                <div className="grid md:grid-cols-2 gap-6">
-                  {match?.topMonachads.map((monachad) => (
+                <div className="grid gap-6 md:grid-cols-2">
+                  {match?.topMonachads.map((monachad, index) => (
                     <div
                       key={monachad.address}
-                      className="card hover:border-purple-500 transition-all"
+                      className="relative overflow-hidden rounded-3xl border border-purple-500/30 bg-gradient-to-br from-[#181028] via-slate-900/80 to-purple-950/60 p-6 text-purple-50 shadow-[0_0_32px_-22px_rgba(168,85,247,0.75)] transition-all duration-300 hover:-translate-y-1 hover:border-purple-400/70"
                     >
-                      <div className="flex items-start justify-between mb-4">
-                        <div>
-                          <p className="text-sm text-gray-500">Monachad</p>
-                          <p className="font-mono text-lg font-bold">
-                            {monachad.address.slice(0, 6)}...
-                            {monachad.address.slice(-4)}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm text-gray-500">ROI</p>
-                          <p
-                            className={`text-2xl font-bold ${
-                              Number.parseFloat(
-                                // TODO: correct calculation
-                                calculateRoi(
-                                  monachad.pnl,
-                                  getParticipantStakeWei(monachad)
-                                )
-                              ) >= 0
-                                ? "text-green-400"
-                                : "text-red-400"
-                            }`}
-                          >
-                            {calculateRoi(
-                              monachad.pnl,
-                              getParticipantStakeWei(monachad)
-                            )}
-                            %
-                          </p>
-                        </div>
+                      <div className="pointer-events-none absolute -right-4 -bottom-2 h-32 w-32 opacity-80">
+                        <Image
+                          src={index % 2 === 0 ? "/pepemon5.png" : "/pepemon6.png"}
+                          alt="Cheering pepe"
+                          width={160}
+                          height={160}
+                          className="h-full w-full object-contain drop-shadow-[0_10px_20px_rgba(168,85,247,0.4)]"
+                        />
                       </div>
+                      <div className="pointer-events-none absolute -left-14 top-6 h-40 w-40 rounded-full bg-purple-500/10 blur-3xl" />
 
-                      <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
-                        <div>
-                          <p className="text-gray-500">Staked</p>
-                          <p>
-                            {safeFormatEther(getParticipantStakeWei(monachad))}{" "}
-                            MON
-                          </p>
+                      <div className="relative space-y-4">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <span className="text-[0.6rem] uppercase tracking-[0.3em] text-purple-200/70">
+                              Monachad #{index + 1}
+                            </span>
+                            <p className="mt-2 font-mono text-lg font-bold">
+                              {monachad.address.slice(0, 6)}...{monachad.address.slice(-4)}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs uppercase tracking-[0.3em] text-purple-200/70">ROI</p>
+                            <p
+                              className={`text-2xl font-black ${
+                                Number.parseFloat(
+                                  calculateRoi(
+                                    monachad.pnl,
+                                    getParticipantStakeWei(monachad)
+                                  )
+                                ) >= 0
+                                  ? "text-green-300"
+                                  : "text-red-300"
+                              }`}
+                            >
+                              {calculateRoi(
+                                monachad.pnl,
+                                getParticipantStakeWei(monachad)
+                              )}
+                              %
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-gray-500">PnL</p>
-                          <p
-                            className={
-                              (monachad.pnl ?? "0").startsWith("-")
-                                ? "text-red-400"
-                                : "text-green-400"
-                            }
-                          >
-                            {monachad.pnl} MON
-                          </p>
+
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <p className="text-purple-200/70">Staked</p>
+                            <p className="font-semibold text-purple-50">
+                              {safeFormatEther(getParticipantStakeWei(monachad))} MON
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-purple-200/70">PnL</p>
+                            <p
+                              className={
+                                (monachad.pnl ?? "0").startsWith("-")
+                                  ? "font-semibold text-red-300"
+                                  : "font-semibold text-green-300"
+                              }
+                            >
+                              {monachad.pnl} MON
+                            </p>
+                          </div>
                         </div>
+
+                        <button
+                          onClick={() => followMonachad(monachad.address)}
+                          disabled={
+                            (isJoining && selectedMonachad === monachad.address) ||
+                            !customMargin ||
+                            Number.parseFloat(customMargin) <= 0
+                          }
+                          className="relative inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 px-6 py-3 text-base font-semibold text-white shadow-lg shadow-purple-900/30 transition duration-200 hover:scale-[1.02] hover:shadow-purple-900/40 disabled:scale-100 disabled:opacity-40"
+                        >
+                          {isJoining && selectedMonachad === monachad.address ? (
+                            <>
+                              <span className="animate-spin">🌀</span>
+                              Following…
+                            </>
+                          ) : (
+                            <>
+                              <span>🔥</span>
+                              Follow This Monachad
+                            </>
+                          )}
+                        </button>
                       </div>
-
-                      <button
-                        onClick={() => followMonachad(monachad.address)}
-                        disabled={
-                          (isJoining &&
-                            selectedMonachad === monachad.address) ||
-                          !customMargin ||
-                          Number.parseFloat(customMargin) <= 0
-                        }
-                        className={`btn w-full rounded-lg font-semibold text-white px-6 py-3 transition-all
-                            bg-gradient-to-r from-purple-600 via-purple-500 to-purple-700
-                            shadow-lg shadow-purple-900/20
-                            hover:from-purple-700 hover:to-purple-800 hover:scale-[1.03]
-                            disabled:opacity-50 disabled:cursor-not-allowed`}
-                        style={{
-                          boxShadow: "0 2px 8px 0 rgba(128, 90, 213, 0.15)",
-                          fontSize: "1.1rem",
-                          letterSpacing: "0.02em",
-                        }}
-                      >
-                        {isJoining && selectedMonachad === monachad.address ? (
-                          "Following…"
-                        ) : (
-                          <>Follow This Monachad</>
-                        )}
-                      </button>
                     </div>
                   ))}
                 </div>

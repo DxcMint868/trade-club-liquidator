@@ -17,6 +17,7 @@ import {
 import { getActiveDexes } from "@/lib/dex-registry";
 import { parseEther, formatEther, encodeFunctionData } from "viem";
 import { Hex } from "viem";
+import { FUNDEX_ABI } from "@/lib/fundex";
 
 const TradingChart = dynamic(() => import("@/components/trading-chart"), {
   ssr: false,
@@ -96,20 +97,6 @@ interface DexMeta {
 }
 
 const activeDexes = getActiveDexes();
-
-const FUNDEX_ABI = [
-  {
-    type: "function",
-    name: "openPosition",
-    stateMutability: "payable",
-    inputs: [
-      { name: "assetId", type: "uint256" },
-      { name: "positionType", type: "uint8" },
-      { name: "leverage", type: "uint256" },
-    ],
-    outputs: [],
-  },
-] as const;
 
 const MATCH_MANAGER_ABI = [
   {
